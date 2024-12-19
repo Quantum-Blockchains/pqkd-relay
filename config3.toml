@@ -1,0 +1,10 @@
+proxies = [{ sae_id = "Test_2SAE", addr = "http://127.0.0.1:4001" }]
+port = 4002
+port_etsi = 3002
+local_sae_id = "Validator_1SAE"
+remote_sae_id = "Validator_2SAE"
+kme_address = "https://31.182.67.98:8082"
+remote_proxy_address = "http://127.0.0.1:4003"
+ca_cert = "./qbck-ca.crt"
+client_cert = "./client.crt"
+client_key = "./client.key"

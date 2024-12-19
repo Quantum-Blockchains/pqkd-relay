@@ -1,0 +1,21 @@
+{
+  "nodes": [
+    "Test_1SAE",
+    "Test_2SAE",
+    "Test_3SAE"
+  ],
+  "node_holes": [],
+  "edge_property": "undirected",
+  "edges": [
+    [
+      0,
+      1,
+      0
+    ],
+    [
+      1,
+      2,
+      0
+    ]
+  ]
+}
