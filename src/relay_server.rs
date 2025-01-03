@@ -94,7 +94,7 @@ async fn send_keys(
     let pqkd = state
         .pqkds()
         .iter()
-        .find(|p| p.remote_sae_id() == next_pqkd)
+        .find(|p| p.sae_id() == next_pqkd)
         .unwrap();
 
     let client = state.clients().get(pqkd.sae_id()).unwrap();
@@ -238,7 +238,7 @@ async fn info_keys(
 ) -> Result<Response, StatusCode> {
     println!("PAYLOAD: {:?}", payload);
 
-    let keys = if let Ok(keys) = get_keys(&payload.from, &state, payload.keys).await {
+    let keys = if let Ok(keys) = get_keys(&payload.to, &state, payload.keys).await {
         keys
     } else {
         return Ok(Response::new(Body::empty()).into_response());

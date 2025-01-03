@@ -63,6 +63,8 @@ struct Prom {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct DataKeys {
+    from: String,
+    to: String,
     path: Vec<String>,
     keys: Vec<Prom>,
 }
@@ -130,6 +132,8 @@ async fn send_keys(
             })
             .collect();
         DataKeys {
+            from: String::from(pqkd.sae_id()),
+            to: String::from(pqkd.remote_sae_id()),
             path,
             keys: keys_for_send,
         }
@@ -173,6 +177,8 @@ async fn send_keys(
         }
 
         DataKeys {
+            from: String::from(pqkd.sae_id()),
+            to: String::from(pqkd.remote_sae_id()),
             path,
             keys: keys_for_send,
         }
