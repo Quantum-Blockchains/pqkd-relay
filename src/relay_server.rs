@@ -1,5 +1,5 @@
-use crate::config::Config;
 use crate::util;
+use crate::{app_state::AppStateRelay, config::Config};
 use axum::{
     body::Body,
     extract::{Json, State},
@@ -8,6 +8,7 @@ use axum::{
     Router,
 };
 use hyper::StatusCode;
+use hyper_util::client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -41,6 +42,8 @@ struct Prom {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct DataKeys {
+    from: String,
+    to: String,
     path: Vec<String>,
     keys: Vec<Prom>,
 }
@@ -51,13 +54,13 @@ pub struct RelayServer {
 }
 
 impl RelayServer {
-    pub async fn build(state: Arc<AppState>, config: &Config) -> RelayServer {
+    pub async fn build(state: AppStateRelay, config: &Config) -> RelayServer {
         let app = Router::new()
             .route("/keys", post(request_keys))
             .route("/info_keys", post(info_keys))
             .with_state(state);
 
-        let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", config.port()))
+        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.port()))
             .await
             .unwrap();
 
@@ -70,162 +73,172 @@ impl RelayServer {
 }
 
 async fn request_keys(
-    State(_state): State<Arc<AppState>>,
+    State(_state): State<AppStateRelay>,
     Json(_payload): Json<DataKeys>,
 ) -> Result<Response, StatusCode> {
     Ok(Response::new(Body::empty()).into_response())
 }
 
 async fn send_keys(
-    state: Arc<AppState>,
+    state: &AppStateRelay,
+    sae_id: &str,
     path: Vec<String>,
     keys: Vec<Key>,
 ) -> Result<(), StatusCode> {
     println!("SEND KEYS");
-    let position = path.iter().position(|i| i == state.local_sae_id()).unwrap();
+    //let pqkd = state.pqkds().iter().find(|p| p.sae_id() == sae_id).unwrap();
+    let position = path.iter().position(|i| i == &sae_id).unwrap();
 
     let next_pqkd = path.get(position + 1).unwrap();
 
-    if next_pqkd == state.remote_sae_id() {
-        println!("WITH PQKD");
-        let data = if position == 0 {
-            println!("SEND FROM 0");
-            let keys_ids: Vec<String> = keys.iter().map(|k| k.key_id.clone()).collect();
-            let keys_for_send: Vec<Prom> = keys_ids
-                .iter()
-                .map(|k| Prom {
-                    key_id: String::from(k),
-                    key_id_xor: None,
-                    key: None,
-                })
-                .collect();
-            DataKeys {
-                path,
-                keys: keys_for_send,
-            }
-        } else {
-            println!("SEND jak posrednik");
-            let number = keys.len();
-            let size = keys[0].key.len();
-
-            let req = hyper::Request::builder()
-                .method(hyper::Method::GET)
-                .uri(format!(
-                    "{}/api/v1/keys/{}/enc_keys?size={}&number={}",
-                    state.kme_address(),
-                    state.remote_sae_id(),
-                    512,
-                    number
-                ))
-                .body(Body::empty())
-                .unwrap();
-            println!("req: {:?}", req);
-            let res = state.client().request(req).await.unwrap().into_response();
-
-            let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
-                .await
-                .unwrap();
-
-            let keys_for_xor: Keys = serde_json::from_slice(&body_bytes[..]).unwrap();
-            let keys_for_xor = keys_for_xor.keys();
-
-            let mut keys_for_send = Vec::new();
-
-            for i in 0..keys.len() {
-                keys_for_send.push(Prom {
-                    key_id: keys[i].key_id.clone(),
-                    key_id_xor: Some(keys_for_xor[i].key_id.clone()),
-                    key: Some(util::xor(
-                        keys[i].key.as_bytes().to_vec(),
-                        keys_for_xor[i].key.as_bytes().to_vec(),
-                    )),
-                });
-            }
-
-            DataKeys {
-                path,
-                keys: keys_for_send,
-            }
-        };
-        let request = hyper::Request::builder()
-            .method(hyper::Method::POST)
-            .uri(format!("{}/info_keys", state.remote_proxy_address()))
-            .header("content-type", "application/json")
-            .body(Body::new(serde_json::to_string(&data).unwrap()))
-            .unwrap();
-
-        let response = state
-            .client()
-            .request(request)
-            .await
-            .unwrap()
-            .into_response();
-
-        println!(
-            "body: {:?}",
-            axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap()
-        );
-        return Ok(());
-    }
-
-    println!("len: {:?}", state.proxies().len());
-    println!("proxies: {:?}", state.proxies());
-    state
-        .proxies()
+    let pqkd = state
+        .pqkds()
         .iter()
-        .for_each(|k| println!("{:?}", k.sae_id()));
+        .find(|p| p.remote_sae_id() == next_pqkd)
+        .unwrap();
 
-    if let Some(p) = state.proxies().iter().find(|&p| p.sae_id() == next_pqkd) {
-        println!("SEND poprostu do prosy");
-        let key_for_send: Vec<Prom> = keys
+    let client = state.clients().get(pqkd.sae_id()).unwrap();
+
+    //if next_pqkd == pqkd.remote_sae_id() {
+    println!("WITH PQKD");
+    let data = if position == 0 {
+        println!("SEND FROM 0");
+        let keys_ids: Vec<String> = keys.iter().map(|k| k.key_id.clone()).collect();
+        let keys_for_send: Vec<Prom> = keys_ids
             .iter()
             .map(|k| Prom {
-                key_id: k.key_id.clone(),
+                key_id: String::from(k),
                 key_id_xor: None,
-                key: Some(k.key.as_bytes().to_vec()),
+                key: None,
             })
             .collect();
-
-        let data = DataKeys {
+        DataKeys {
+            from: String::from(pqkd.sae_id()),
+            to: String::from(pqkd.remote_sae_id()),
             path,
-            keys: key_for_send,
-        };
+            keys: keys_for_send,
+        }
+    } else {
+        println!("SEND jak posrednik");
+        let number = keys.len();
+        let size = keys[0].key.len();
 
-        let request = hyper::Request::builder()
-            .method(hyper::Method::POST)
-            .uri(format!("{}/info_keys", p.addr()))
-            .header("content-type", "application/json")
-            .body(Body::new(serde_json::to_string(&data).unwrap()))
+        let req = hyper::Request::builder()
+            .method(hyper::Method::GET)
+            .uri(format!(
+                "{}/api/v1/keys/{}/enc_keys?size={}&number={}",
+                pqkd.kme_address(),
+                pqkd.remote_sae_id(),
+                512,
+                number
+            ))
+            .body(Body::empty())
+            .unwrap();
+        println!("req: {:?}", req);
+
+        let res = client.request(req).await.unwrap().into_response();
+
+        let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
             .unwrap();
 
-        let response = state
-            .client()
-            .request(request)
+        let keys_for_xor: Keys = serde_json::from_slice(&body_bytes[..]).unwrap();
+        let keys_for_xor = keys_for_xor.keys();
+
+        let mut keys_for_send = Vec::new();
+
+        for i in 0..keys.len() {
+            keys_for_send.push(Prom {
+                key_id: keys[i].key_id.clone(),
+                key_id_xor: Some(keys_for_xor[i].key_id.clone()),
+                key: Some(util::xor(
+                    keys[i].key.as_bytes().to_vec(),
+                    keys_for_xor[i].key.as_bytes().to_vec(),
+                )),
+            });
+        }
+
+        DataKeys {
+            from: String::from(pqkd.sae_id()),
+            to: String::from(pqkd.remote_sae_id()),
+            path,
+            keys: keys_for_send,
+        }
+    };
+    let request = hyper::Request::builder()
+        .method(hyper::Method::POST)
+        .uri(format!("{}/info_keys", pqkd.remote_proxy_address()))
+        .header("content-type", "application/json")
+        .body(Body::new(serde_json::to_string(&data).unwrap()))
+        .unwrap();
+
+    let response = client.request(request).await.unwrap().into_response();
+
+    println!(
+        "body: {:?}",
+        axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap()
-            .into_response();
+    );
+    return Ok(());
+    //}
 
-        println!(
-            "body: {:?}",
-            axum::body::to_bytes(response.into_body(), usize::MAX)
-                .await
-                .unwrap()
-        );
-        return Ok(());
-    }
-
-    Ok(())
+    // println!("len: {:?}", state.proxies().len());
+    // println!("proxies: {:?}", state.proxies());
+    // state
+    //     .proxies()
+    //     .iter()
+    //     .for_each(|k| println!("{:?}", k.sae_id()));
+    //
+    // if let Some(p) = state.proxies().iter().find(|&p| p.sae_id() == next_pqkd) {
+    //     println!("SEND poprostu do prosy");
+    //     let key_for_send: Vec<Prom> = keys
+    //         .iter()
+    //         .map(|k| Prom {
+    //             key_id: k.key_id.clone(),
+    //             key_id_xor: None,
+    //             key: Some(k.key.as_bytes().to_vec()),
+    //         })
+    //         .collect();
+    //
+    //     let data = DataKeys {
+    //         path,
+    //         keys: key_for_send,
+    //     };
+    //
+    //     let request = hyper::Request::builder()
+    //         .method(hyper::Method::POST)
+    //         .uri(format!("{}/info_keys", p.addr()))
+    //         .header("content-type", "application/json")
+    //         .body(Body::new(serde_json::to_string(&data).unwrap()))
+    //         .unwrap();
+    //
+    //     let response = state
+    //         .client()
+    //         .request(request)
+    //         .await
+    //         .unwrap()
+    //         .into_response();
+    //
+    //     println!(
+    //         "body: {:?}",
+    //         axum::body::to_bytes(response.into_body(), usize::MAX)
+    //             .await
+    //             .unwrap()
+    //     );
+    //     return Ok(());
+    // }
+    //
+    // Ok(())
 }
 
 async fn info_keys(
-    State(state): State<Arc<AppState>>,
+    State(state): State<AppStateRelay>,
     Json(payload): Json<DataKeys>,
 ) -> Result<Response, StatusCode> {
     println!("PAYLOAD: {:?}", payload);
 
-    let keys = if let Ok(keys) = get_keys(Arc::clone(&state), payload.keys).await {
+    let keys = if let Ok(keys) = get_keys(&payload.from, &state, payload.keys).await {
         keys
     } else {
         return Ok(Response::new(Body::empty()).into_response());
@@ -233,15 +246,26 @@ async fn info_keys(
 
     println!("KEYS: {:?}", keys);
 
+    let pqkd = state
+        .pqkds()
+        .iter()
+        .find(|p| p.sae_id() == payload.to)
+        .unwrap();
+
     let position = payload
         .path
         .iter()
-        .position(|i| i == state.local_sae_id())
+        .position(|i| i == pqkd.sae_id())
         .unwrap();
 
-    if payload.path.last().unwrap() == state.local_sae_id() {
+    if payload.path.last().unwrap() == pqkd.sae_id() {
         for key in keys {
-            state.add_key(payload.path[0].to_string(), key.key_id, key.key);
+            state.add_key(
+                pqkd.sae_id(),
+                payload.path[0].to_string(),
+                key.key_id,
+                key.key,
+            );
         }
 
         Ok(Response::new(Body::empty()).into_response())
@@ -250,12 +274,12 @@ async fn info_keys(
 
         println!("\tFROM: {:?}", payload.path[0]);
         println!("\tTO: {:?}", payload.path.last().unwrap());
-        println!("\tFROM me: {:?}", state.remote_sae_id());
-        println!("\tME: {:?}", state.local_sae_id());
+        println!("\tFROM me: {:?}", pqkd.remote_sae_id());
+        println!("\tME: {:?}", pqkd.sae_id());
         println!("\tNEXT: {:?}", next_pqkd);
         println!("\tKEYS: {:?}", keys);
 
-        match send_keys(state, payload.path, keys).await {
+        match send_keys(&state, pqkd.sae_id(), payload.path, keys).await {
             Ok(_) => Ok(Response::new(Body::empty())),
             // todo ERROR
             Err(_) => Ok(Response::new(Body::empty()).into_response()),
@@ -263,8 +287,15 @@ async fn info_keys(
     }
 }
 
-async fn get_keys(state: Arc<AppState>, payload_keys: Vec<Prom>) -> Result<Vec<Key>, StatusCode> {
+async fn get_keys(
+    sae_id: &str,
+    state: &AppStateRelay,
+    payload_keys: Vec<Prom>,
+) -> Result<Vec<Key>, StatusCode> {
     let mut keys: Vec<Key> = Vec::new();
+
+    let pqkd = state.pqkds().iter().find(|p| p.sae_id() == sae_id).unwrap();
+    let client = state.clients().get(sae_id).unwrap();
 
     for key in payload_keys {
         match (key.key_id, key.key_id_xor, key.key) {
@@ -282,19 +313,14 @@ async fn get_keys(state: Arc<AppState>, payload_keys: Vec<Prom>) -> Result<Vec<K
                     .method(hyper::Method::GET)
                     .uri(format!(
                         "{}/api/v1/keys/{}/dec_keys?key_ID={}",
-                        state.kme_address(),
-                        state.remote_sae_id(),
+                        pqkd.kme_address(),
+                        pqkd.remote_sae_id(),
                         k_id,
                     ))
                     .body(Body::empty())
                     .unwrap();
 
-                let response = state
-                    .client()
-                    .request(request)
-                    .await
-                    .unwrap()
-                    .into_response();
+                let response = client.request(request).await.unwrap().into_response();
                 let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
                     .unwrap();
@@ -312,19 +338,14 @@ async fn get_keys(state: Arc<AppState>, payload_keys: Vec<Prom>) -> Result<Vec<K
                     .method(hyper::Method::GET)
                     .uri(format!(
                         "{}/api/v1/keys/{}/dec_keys?key_ID={}",
-                        state.kme_address(),
-                        state.remote_sae_id(),
+                        pqkd.kme_address(),
+                        pqkd.remote_sae_id(),
                         k_id_xor,
                     ))
                     .body(Body::empty())
                     .unwrap();
 
-                let response = state
-                    .client()
-                    .request(request)
-                    .await
-                    .unwrap()
-                    .into_response();
+                let response = client.request(request).await.unwrap().into_response();
                 let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
                     .unwrap();
