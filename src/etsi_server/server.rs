@@ -388,10 +388,7 @@ async fn send_keys(
         }
     } else {
         let number = keys.len();
-        // TODO
         let size = BASE64_STANDARD.decode(keys[0].key.clone()).unwrap().len();
-        println!("len: {:?}", size);
-        //let size = keys[0].key.len();
 
         let req = hyper::Request::builder()
             .method(hyper::Method::GET)
@@ -399,7 +396,7 @@ async fn send_keys(
                 "{}/api/v1/keys/{}/enc_keys?size={}&number={}",
                 pqkd.kme_address(),
                 pqkd.remote_sae_id(),
-                512,
+                size,
                 number
             ))
             .body(Body::empty())?;
