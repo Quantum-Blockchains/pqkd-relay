@@ -1,6 +1,6 @@
 use super::error::EtsiServerError;
 use super::state::AppStateEtsi;
-use crate::config::Pqkd;
+use crate::config::{build_hypercube, find_n_shortest_paths, Pqkd};
 use crate::util;
 use axum::{
     body::Body,
@@ -14,12 +14,13 @@ use axum::{body::Bytes, extract::MatchedPath, http::HeaderMap};
 use base64::prelude::*;
 use hyper::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tower_http::{classify::ServerErrorsFailureClass, trace::TraceLayer};
-use tracing::{info_span, Span};
+use tracing::Span;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Key {
     pub key: String,
     #[serde(rename(deserialize = "key_ID"))]
@@ -222,15 +223,67 @@ async fn _enc_keys(
     if pqkd.remote_sae_id() == sae_id {
         h(state, req).await
     } else {
-        // TODO path
-        let path = Vec::from([
-            String::from("Test_1SAE"),
-            String::from("Test_2SAE"),
-            String::from("Validator_1SAE"),
-            String::from("Validator_2SAE"),
-        ]);
+        let end = state.hypercube().find_relay(&sae_id).unwrap();
+        let hypercube = build_hypercube(state.hypercube().dimension());
+        let paths = find_n_shortest_paths(&hypercube, state.id_relay(), end, state.hypercube().n());
 
-        tracing::info!("Path: {:?}", path);
+        let mut paths_sae_id = Vec::new();
+
+        for path in paths {
+            let mut v: Vec<String> = Vec::new();
+
+            let mut p = Vec::new();
+            path.iter().for_each(|i| {
+                p.push(
+                    state
+                        .hypercube()
+                        .relay()
+                        .iter()
+                        .find(|r| r.id() == i)
+                        .unwrap()
+                        .pqkds(),
+                );
+            });
+            let c = state.hypercube().connection();
+            for i in 0..p.len() - 1 {
+                for sae_id in p[i] {
+                    let con = c
+                        .iter()
+                        .find(|con| con.first() == sae_id || con.second() == sae_id)
+                        .unwrap();
+
+                    let s_r = if con.first() == sae_id {
+                        con.second()
+                    } else {
+                        con.first()
+                    };
+
+                    let sae_id_r = p[i + 1].iter().find(|s| s == &s_r);
+
+                    if let Some(s) = sae_id_r {
+                        v.push(String::from(sae_id));
+                        v.push(String::from(s));
+                        break;
+                    }
+                }
+            }
+            if v.last().unwrap() != &sae_id {
+                v.push(sae_id.clone());
+            }
+            if v.first().unwrap() != state.sae_id() {
+                v.insert(0, String::from(state.sae_id()));
+            }
+            paths_sae_id.push(v);
+        }
+
+        let p = paths_sae_id
+            .iter()
+            .position(|i| i[1] == pqkd.remote_sae_id())
+            .unwrap();
+        let path = paths_sae_id.swap_remove(p);
+
+        tracing::info!("Main path: {:?}", path);
+        tracing::info!("Other path: {:?}", paths_sae_id);
 
         let uri = match (req.method(), req.uri().query()) {
             (&Method::GET, Some(query)) => {
@@ -262,13 +315,73 @@ async fn _enc_keys(
         let keys: Keys = serde_json::from_slice(&body_bytes[..])?;
         let keys = keys.keys();
 
-        match send_keys(state, path, keys).await {
-            Ok(_) => {
-                tracing::info!("Transfer keys: Succeces");
-                Ok(Response::from_parts(parts, Body::from(body_bytes)))
-            } // todo ERROR zwrocic komunikat
-            Err(e) => Err(e),
+        //let mut list_handles = Vec::new();
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let st = Arc::new(state);
+        let ks = Arc::new(keys);
+        // let p = paths_sae_id.get(0).unwrap().clone();
+
+        for p in paths_sae_id {
+            let tx = tx.clone();
+            let st = Arc::clone(&st);
+            let ks = Arc::clone(&ks);
+            tokio::task::spawn(async move {
+                tracing::info!("SEND KEY path {:?}", p);
+                let res = send_keys(st, p, ks).await;
+                tx.send(res).await.unwrap();
+            });
         }
+        // tokio::task::spawn(async move {
+        //     tracing::info!("SEND KEY path {:?}", p);
+        //     let res = send_keys(st, p, ks).await;
+        //     tx.send(res).await.unwrap();
+        // });
+
+        tokio::task::spawn(async move {
+            tracing::info!("SEND KEY path {:?}", path);
+            let res = send_keys(st, path, ks).await;
+            tx.send(res).await.unwrap();
+        });
+
+        //list_handles.push(h);
+
+        //let response_1 = send_keys(&state, path, &keys).await;
+
+        //let mut responses = Vec::new();
+
+        // match send_keys(state, path, keys).await {
+        //     Ok(_) => {
+        //         tracing::info!("Transfer keys: Succeces");
+        //         Ok(Response::from_parts(parts, Body::from(body_bytes)))
+        //     } // todo ERROR zwrocic komunikat
+        //     Err(e) => Err(e),
+        // }
+
+        // if let Err(e) = response_1 {
+        //     tracing::info!("Transfer keys: Failed. {:?}", e);
+        //     return Err(e);
+        // } else {
+        //     tracing::info!("Transfer keys: Succeces");
+        // }
+        //
+        // for r in responses {
+        //     if let Err(e) = r {
+        //         tracing::info!("Transfer keys: Failed. {:?}", e);
+        //         return Err(e);
+        //     } else {
+        //         tracing::info!("Transfer keys: Succeces");
+        //     }
+        // }
+        while let Some(res) = rx.recv().await {
+            if let Err(e) = res {
+                tracing::error!("Error: {:?}", e);
+                return Err(e);
+            }
+        }
+
+        tracing::info!("Transfer keys: Succeces");
+        Ok(Response::from_parts(parts, Body::from(body_bytes)))
     }
 }
 
@@ -349,21 +462,27 @@ async fn h(state: AppStateEtsi, mut req: Request) -> Result<Response, EtsiServer
 }
 
 async fn send_keys(
-    state: AppStateEtsi,
+    state: Arc<AppStateEtsi>,
     path: Vec<String>,
-    keys: Vec<Key>,
+    keys: Arc<Vec<Key>>,
 ) -> Result<(), EtsiServerError> {
-    let pqkd = state
-        .pqkd(|p| p.sae_id() == state.sae_id())
-        .ok_or(EtsiServerError::UnknownPqkd(state.sae_id().to_string()))?;
+    let pqkd = if let Some(pq) = state.pqkd(|p| p.sae_id() == path[1]) {
+        pq
+    } else {
+        state
+            .pqkd(|p| p.sae_id() == state.sae_id())
+            .ok_or(EtsiServerError::UnknownPqkd(state.sae_id().to_string()))?
+    };
 
+    // let pqkd = state
+    //     .pqkd(|p| p.sae_id() == state.sae_id())
+    //     .ok_or(EtsiServerError::UnknownPqkd(state.sae_id().to_string()))?;
     let position = path
         .iter()
         .position(|i| i == pqkd.sae_id())
         .ok_or(EtsiServerError::PathError)?;
 
     let next_pqkd = path.get(position + 1).ok_or(EtsiServerError::PathError)?;
-
     let pqkd = state
         .pqkd(|p| p.remote_sae_id() == next_pqkd)
         .ok_or(EtsiServerError::UnknownPqkd(state.sae_id().to_string()))?;
@@ -388,8 +507,7 @@ async fn send_keys(
         }
     } else {
         let number = keys.len();
-        let size = BASE64_STANDARD.decode(keys[0].key.clone()).unwrap().len();
-
+        let size = BASE64_STANDARD.decode(keys[0].key.clone()).unwrap().len() * 8;
         let req = hyper::Request::builder()
             .method(hyper::Method::GET)
             .uri(format!(
@@ -400,8 +518,12 @@ async fn send_keys(
                 number
             ))
             .body(Body::empty())?;
-
-        let res = state.client().request(req).await?.into_response();
+        let res = state
+            .client_for_sae_id(pqkd.sae_id())
+            .unwrap()
+            .request(req)
+            .await?
+            .into_response();
 
         if res.status() != StatusCode::OK {
             return Err(EtsiServerError::PqkdRequestError(res.status()));

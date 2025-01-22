@@ -26,3 +26,4 @@ tower-http = { version = "0.6.1", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 base64 = "0.22.1"
+itertools = "0.14.0"

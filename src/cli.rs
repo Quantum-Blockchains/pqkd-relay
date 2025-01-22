@@ -9,8 +9,8 @@ pub struct Args {
     #[arg(short = 'c', long = "config", value_name = "CONFIG_FILE")]
     pub config_file: PathBuf,
     // Path to file with topologi networks pqkd
-    //#[arg(short = 't', long = "tapology", value_name = "TAPOLOGY_FILE")]
-    //pub tapology_file: PathBuf,
+    #[arg(short = 'h', long = "hypercube", value_name = "HYPERCUBE_FILE")]
+    pub hypercube_file: PathBuf,
 }
 
 impl Args {

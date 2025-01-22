@@ -31,6 +31,8 @@ pub enum RelayServerError {
     // GetKeysError,
     #[error("Error")]
     AddKeyError,
+    #[error("The keys received do not match.")]
+    KeysDoNotMaych,
 }
 impl From<RelayServerError> for StatusCode {
     fn from(_val: RelayServerError) -> Self {

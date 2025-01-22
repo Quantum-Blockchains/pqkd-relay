@@ -103,7 +103,7 @@ async fn info_keys(
         return Ok(Response::new(Body::empty()).into_response());
     };
 
-    let pqkd = state.pqkd(payload.to()).unwrap();
+    let pqkd = state.pqkd(|p| p.sae_id() == payload.to()).unwrap();
 
     if payload.path().last().unwrap() == pqkd.sae_id() {
         for key in keys {
@@ -139,10 +139,20 @@ async fn send_keys(
     keys: Vec<Key>,
 ) -> Result<(), StatusCode> {
     let position = path.iter().position(|i| i == sae_id).unwrap();
-
     let next_pqkd = path.get(position + 1).unwrap();
 
-    let pqkd = state.pqkd(next_pqkd).unwrap();
+    let pqkd = state.pqkd(|p| p.sae_id() == next_pqkd).unwrap();
+
+    if position + 1 == path.len() - 1 {
+        for key in keys {
+            tracing::info!("Save key from {:?} with key_ID: {:?}", path[0], key.key_id);
+
+            state
+                .add_key(pqkd.sae_id(), path[0].to_string(), key.key_id, key.key)
+                .unwrap();
+        }
+        return Ok(());
+    }
 
     tracing::info!("Send keys to next node {}", pqkd.remote_sae_id());
 
@@ -224,7 +234,7 @@ async fn get_keys(
 ) -> Result<Vec<Key>, StatusCode> {
     let mut keys: Vec<Key> = Vec::new();
 
-    let pqkd = state.pqkd(sae_id).unwrap();
+    let pqkd = state.pqkd(|p| p.sae_id() == sae_id).unwrap();
     let client = state.client(sae_id).unwrap();
 
     for key in payload_keys {

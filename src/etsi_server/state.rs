@@ -1,4 +1,4 @@
-use crate::config::{Config, Pqkd};
+use crate::config::{Config, Hypercube, Pqkd};
 use crate::etsi_server::{Key, KeyIds, Keys};
 use axum::body::Body;
 use hyper_tls::HttpsConnector;
@@ -10,6 +10,7 @@ use std::{
 
 use super::error::EtsiServerError;
 
+use std::collections::HashMap;
 pub type Client = hyper_util::client::legacy::Client<HttpsConnector<HttpConnector>, Body>;
 
 pub struct KeyReceived {
@@ -26,10 +27,13 @@ impl KeyReceived {
 
 #[derive(Clone)]
 pub struct AppStateEtsi {
+    id_relay: String,
     sae_id: String,
     pqkds: Vec<Pqkd>,
     keys: Arc<Mutex<Vec<KeyReceived>>>,
     client: Arc<Client>,
+    clients: Arc<HashMap<String, Arc<Client>>>,
+    hypercube: Arc<Hypercube>,
 }
 
 impl AppStateEtsi {
@@ -37,6 +41,8 @@ impl AppStateEtsi {
         local_sae_id: &str,
         config: &Config,
         keys: Arc<Mutex<Vec<KeyReceived>>>,
+        clients: Arc<HashMap<String, Arc<Client>>>,
+        hypercube: Arc<Hypercube>,
     ) -> Result<AppStateEtsi, EtsiServerError> {
         let pqkd = config
             .pqkds()
@@ -78,11 +84,18 @@ impl AppStateEtsi {
         };
 
         Ok(AppStateEtsi {
+            id_relay: String::from(config.id()),
             sae_id: String::from(local_sae_id),
             pqkds: config.pqkds().clone(),
             keys,
             client: Arc::new(client),
+            clients,
+            hypercube,
         })
+    }
+
+    pub fn id_relay(&self) -> &str {
+        &self.id_relay
     }
 
     pub fn sae_id(&self) -> &str {
@@ -107,6 +120,14 @@ impl AppStateEtsi {
 
     pub fn client(&self) -> &Arc<Client> {
         &self.client
+    }
+
+    pub fn client_for_sae_id(&self, sae_id: &str) -> Option<&Arc<Client>> {
+        self.clients.get(sae_id)
+    }
+
+    pub fn hypercube(&self) -> &Arc<Hypercube> {
+        &self.hypercube
     }
 
     pub fn get_key(&self, from: &str, key_ids: &KeyIds) -> Result<Keys, EtsiServerError> {

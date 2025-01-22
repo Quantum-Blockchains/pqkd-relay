@@ -8,14 +8,14 @@ use super::error::RelayServerError;
 #[derive(Clone)]
 pub struct AppStateRelay {
     pqkds: Vec<Pqkd>,
-    clients: HashMap<String, Arc<Client>>,
+    clients: Arc<HashMap<String, Arc<Client>>>,
     keys: HashMap<String, Arc<Mutex<Vec<KeyReceived>>>>,
 }
 
 impl AppStateRelay {
     pub fn build(
         pqkds: Vec<Pqkd>,
-        clients: HashMap<String, Arc<Client>>,
+        clients: Arc<HashMap<String, Arc<Client>>>,
         keys: HashMap<String, Arc<Mutex<Vec<KeyReceived>>>>,
     ) -> AppStateRelay {
         AppStateRelay {
@@ -25,8 +25,15 @@ impl AppStateRelay {
         }
     }
 
-    pub fn pqkd(&self, sae_id: &str) -> Option<&Pqkd> {
-        self.pqkds.iter().find(|p| p.sae_id() == sae_id)
+    // pub fn pqkd(&self, sae_id: &str) -> Option<&Pqkd> {
+    //     self.pqkds.iter().find(|p| p.sae_id() == sae_id)
+    // }
+
+    pub fn pqkd<P>(&self, predicate: P) -> Option<&Pqkd>
+    where
+        P: FnMut(&&Pqkd) -> bool,
+    {
+        self.pqkds.iter().find(predicate)
     }
 
     pub fn client(&self, sae_id: &str) -> Option<&Arc<Client>> {
@@ -40,13 +47,25 @@ impl AppStateRelay {
         key_id: String,
         key: String,
     ) -> Result<(), RelayServerError> {
-        self.keys
+        let mut keys = self
+            .keys
             .get(sae_id)
             .ok_or(RelayServerError::AddKeyError)?
             .lock()
-            .map_err(|_| RelayServerError::AddKeyError)?
-            .push(KeyReceived::new(from, key_id, key));
-        Ok(())
+            .map_err(|_| RelayServerError::AddKeyError)?;
+
+        let is_save = keys.iter().find(|k| k.from == from && k.key_id == key_id);
+
+        if let Some(k) = is_save {
+            if k.key == key {
+                Ok(())
+            } else {
+                Err(RelayServerError::KeysDoNotMaych)
+            }
+        } else {
+            keys.push(KeyReceived::new(from, key_id, key));
+            Ok(())
+        }
     }
 
     // pub fn get_key(
