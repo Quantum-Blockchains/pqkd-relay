@@ -24,6 +24,7 @@ use tracing::Span;
 pub struct Key {
     pub key: String,
     #[serde(rename(deserialize = "key_ID"))]
+    #[serde(rename(serialize = "key_ID"))]
     pub key_id: String,
 }
 
@@ -35,18 +36,21 @@ pub struct Keys {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyId {
     #[serde(rename(deserialize = "key_ID"))]
+    #[serde(rename(serialize = "key_ID"))]
     pub key_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyIds {
     #[serde(rename(deserialize = "key_IDs"))]
+    #[serde(rename(serialize = "key_IDs"))]
     pub key_ids: Vec<KeyId>,
 }
 
 #[derive(Deserialize)]
 struct DecKeysQuery {
     #[serde(rename(deserialize = "key_ID"))]
+    #[serde(rename(serialize = "key_ID"))]
     key_id: String,
 }
 

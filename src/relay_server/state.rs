@@ -54,10 +54,13 @@ impl AppStateRelay {
             .lock()
             .map_err(|_| RelayServerError::AddKeyError)?;
 
-        let is_save = keys.iter().find(|k| k.from == from && k.key_id == key_id);
+        let is_save = keys
+            .iter()
+            .position(|k| k.from == from && k.key_id == key_id);
 
-        if let Some(k) = is_save {
-            if k.key == key {
+        if let Some(p) = is_save {
+            if keys[p].key == key {
+                keys[p].num();
                 Ok(())
             } else {
                 Err(RelayServerError::KeysDoNotMaych)
@@ -67,31 +70,4 @@ impl AppStateRelay {
             Ok(())
         }
     }
-
-    // pub fn get_key(
-    //     &self,
-    //     sae_id: &str,
-    //     from: &str,
-    //     key_ids: &KeyIds,
-    // ) -> Result<Keys, RelayServerError> {
-    //     let mut keys = self
-    //         .keys
-    //         .get(sae_id)
-    //         .ok_or(RelayServerError::GetKeysError)?
-    //         .lock()
-    //         .map_err(|_| RelayServerError::GetKeysError)?;
-    //     let mut return_keys = Vec::new();
-    //     key_ids.key_ids.iter().map(|key_id| {
-    //         keys.iter()
-    //             .position(|k| k.from == from && k.key_id == key_id.key_id)
-    //             .map(|i| {
-    //                 let key = keys.swap_remove(i);
-    //                 return_keys.push(Key {
-    //                     key: key.key,
-    //                     key_id: key.key_id,
-    //                 })
-    //             })
-    //     });
-    //     Ok(Keys { keys: return_keys })
-    // }
 }

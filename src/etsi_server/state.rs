@@ -14,6 +14,7 @@ use std::collections::HashMap;
 pub type Client = hyper_util::client::legacy::Client<HttpsConnector<HttpConnector>, Body>;
 
 pub struct KeyReceived {
+    pub num: u8,
     pub from: String,
     pub key_id: String,
     pub key: String,
@@ -21,7 +22,16 @@ pub struct KeyReceived {
 
 impl KeyReceived {
     pub fn new(from: String, key_id: String, key: String) -> Self {
-        Self { from, key_id, key }
+        Self {
+            num: 1u8,
+            from,
+            key_id,
+            key,
+        }
+    }
+
+    pub fn num(&mut self) {
+        self.num += 1;
     }
 }
 
@@ -139,7 +149,7 @@ impl AppStateEtsi {
         for key_id in &key_ids.key_ids {
             if let Some(p) = keys
                 .iter()
-                .position(|k| k.from == from && k.key_id == key_id.key_id)
+                .position(|k| k.from == from && k.key_id == key_id.key_id && k.num == 2)
             {
                 let key = keys.swap_remove(p);
                 return_keys.push(Key {
