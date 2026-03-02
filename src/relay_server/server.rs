@@ -29,7 +29,10 @@ pub struct RelayServer {
 }
 
 impl RelayServer {
-    pub async fn build(state: AppStateRelay, config: &Config) -> Result<RelayServer, std::io::Error> {
+    pub async fn build(
+        state: AppStateRelay,
+        config: &Config,
+    ) -> Result<RelayServer, std::io::Error> {
         let app = Router::new()
             //.route("/keys", post(request_keys))
             .route("/info_keys", post(info_keys))
@@ -76,8 +79,7 @@ impl RelayServer {
                     ),
             );
 
-        let listener =
-            tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.port())).await?;
+        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.port())).await?;
 
         Ok(RelayServer { app, listener })
     }
@@ -94,10 +96,7 @@ async fn info_keys(
     tracing::info!(
         "Received keys from {} for {}",
         payload.from(),
-        payload
-            .path()
-            .last()
-            .ok_or(StatusCode::BAD_REQUEST)?
+        payload.path().last().ok_or(StatusCode::BAD_REQUEST)?
     );
     let keys = if let Ok(keys) = get_keys(payload.to(), &state, payload.keys()).await {
         keys
@@ -147,9 +146,7 @@ async fn send_keys(
         .iter()
         .position(|i| i == sae_id)
         .ok_or(StatusCode::BAD_REQUEST)?;
-    let next_pqkd = path
-        .get(position + 1)
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let next_pqkd = path.get(position + 1).ok_or(StatusCode::BAD_REQUEST)?;
 
     let pqkd = state
         .pqkd(|p| p.sae_id() == next_pqkd)
@@ -168,9 +165,7 @@ async fn send_keys(
 
     tracing::info!("Send keys to next node {}", pqkd.remote_sae_id());
 
-    let client = state
-        .client(pqkd.sae_id())
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let client = state.client(pqkd.sae_id()).ok_or(StatusCode::BAD_REQUEST)?;
 
     let data = if position == 0 {
         let keys_ids: Vec<String> = keys.iter().map(|k| k.key_id.clone()).collect();
@@ -270,9 +265,7 @@ async fn get_keys(
     let pqkd = state
         .pqkd(|p| p.sae_id() == sae_id)
         .ok_or(StatusCode::BAD_REQUEST)?;
-    let client = state
-        .client(sae_id)
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let client = state.client(sae_id).ok_or(StatusCode::BAD_REQUEST)?;
 
     for key in payload_keys {
         match (key.key_id(), key.key_id_xor(), key.key()) {
@@ -290,11 +283,11 @@ async fn get_keys(
                     .uri(format!(
                         "{}/api/v1/keys/{}/dec_keys?key_ID={}",
                         pqkd.kme_address(),
-                    pqkd.remote_sae_id(),
-                    k_id,
-                ))
-                .body(Body::empty())
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                        pqkd.remote_sae_id(),
+                        k_id,
+                    ))
+                    .body(Body::empty())
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
                 let response = client
                     .request(request)
@@ -320,11 +313,11 @@ async fn get_keys(
                     .uri(format!(
                         "{}/api/v1/keys/{}/dec_keys?key_ID={}",
                         pqkd.kme_address(),
-                    pqkd.remote_sae_id(),
-                    k_id_xor,
-                ))
-                .body(Body::empty())
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                        pqkd.remote_sae_id(),
+                        k_id_xor,
+                    ))
+                    .body(Body::empty())
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
                 let response = client
                     .request(request)
