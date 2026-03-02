@@ -35,8 +35,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let args = cli::Args::fron_args();
-    let config = Config::build(args.config_file).unwrap();
-    let hypercube = Arc::new(Hypercube::build(args.hypercube_file).unwrap());
+    let config = Config::build(args.config_file)?;
+    let hypercube = Arc::new(Hypercube::build(args.hypercube_file)?);
 
     let mut list_handles = Vec::new();
 
@@ -100,9 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let etsi_server = EtsiServer::build(app_state_etsi, pqkd).await?;
 
-        let handle = tokio::task::spawn(async {
-            etsi_server.run().await.unwrap();
-        });
+        let handle = tokio::task::spawn(async move { etsi_server.run().await });
 
         list_handles.push(handle);
 
@@ -116,11 +114,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_state_relay = AppStateRelay::build(config.pqkds().clone(), clients_map, keys_map);
 
-    let relay_server = RelayServer::build(app_state_relay, &config).await;
+    let relay_server = RelayServer::build(app_state_relay, &config).await?;
 
-    let handle_relay = tokio::task::spawn(async {
-        relay_server.run().await.unwrap();
-    });
+    let handle_relay = tokio::task::spawn(async move { relay_server.run().await });
 
     list_handles.push(handle_relay);
 
@@ -129,7 +125,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //let mut results = Vec::with_capacity(list_handles.len());
 
     for handle in list_handles {
-        handle.await.unwrap();
+        match handle.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(Box::new(e) as Box<dyn std::error::Error>),
+            Err(e) => return Err(Box::new(e) as Box<dyn std::error::Error>),
+        }
     }
 
     Ok(())
