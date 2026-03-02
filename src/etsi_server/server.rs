@@ -241,12 +241,7 @@ async fn _enc_keys(
             .find_relay(&sae_id)
             .ok_or(EtsiServerError::PathError)?;
         let hypercube = build_hypercube(state.hypercube().dimension());
-        let paths = find_n_shortest_paths(
-            &hypercube,
-            state.id_relay(),
-            end,
-            state.hypercube().n(),
-        );
+        let paths = find_n_shortest_paths(&hypercube, state.id_relay(), end, state.hypercube().n());
 
         let mut paths_sae_id = Vec::new();
 
