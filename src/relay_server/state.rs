@@ -71,3 +71,92 @@ impl AppStateRelay {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AppStateRelay;
+    use crate::config::Config;
+    use crate::relay_server::error::RelayServerError;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    fn test_config() -> Config {
+        let toml = r#"
+id = "00"
+port = 4000
+
+[[pqkds]]
+port = 3000
+sae_id = "Alice"
+remote_sae_id = "Bob"
+remote_proxy_address = "http://127.0.0.1:4001"
+kme_address = "http://127.0.0.1:8080"
+"#;
+
+        toml::from_str(toml).expect("valid config")
+    }
+
+    #[test]
+    fn add_key_creates_new_entry_then_increments_counter_on_duplicate() {
+        let config = test_config();
+        let key_store = Arc::new(Mutex::new(Vec::new()));
+        let state = AppStateRelay::build(
+            config.pqkds().clone(),
+            Arc::new(HashMap::new()),
+            HashMap::from([("Alice".to_string(), Arc::clone(&key_store))]),
+        );
+
+        state
+            .add_key(
+                "Alice",
+                "Relay_00".to_string(),
+                "key-1".to_string(),
+                "value-1".to_string(),
+            )
+            .expect("first save should succeed");
+
+        state
+            .add_key(
+                "Alice",
+                "Relay_00".to_string(),
+                "key-1".to_string(),
+                "value-1".to_string(),
+            )
+            .expect("duplicate same key should increment counter");
+
+        let stored = key_store.lock().expect("key store lock");
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].num, 2);
+    }
+
+    #[test]
+    fn add_key_returns_error_when_same_key_id_has_different_payload() {
+        let config = test_config();
+        let key_store = Arc::new(Mutex::new(Vec::new()));
+        let state = AppStateRelay::build(
+            config.pqkds().clone(),
+            Arc::new(HashMap::new()),
+            HashMap::from([("Alice".to_string(), key_store)]),
+        );
+
+        state
+            .add_key(
+                "Alice",
+                "Relay_00".to_string(),
+                "key-1".to_string(),
+                "value-1".to_string(),
+            )
+            .expect("first add should pass");
+
+        let err = state
+            .add_key(
+                "Alice",
+                "Relay_00".to_string(),
+                "key-1".to_string(),
+                "different".to_string(),
+            )
+            .expect_err("mismatch must fail");
+
+        assert!(matches!(err, RelayServerError::KeysDoNotMaych));
+    }
+}

@@ -238,3 +238,75 @@ pub fn find_n_shortest_paths(
 
     paths
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_hypercube, find_n_shortest_paths, hamming_distance, Connection, Hypercube, Relay,
+    };
+
+    #[test]
+    fn hamming_distance_counts_different_bits() {
+        assert_eq!(hamming_distance("1010", "1111"), 2);
+        assert_eq!(hamming_distance("000", "000"), 0);
+    }
+
+    #[test]
+    fn build_hypercube_for_dim_2_has_expected_neighbors() {
+        let graph = build_hypercube(2);
+
+        assert_eq!(graph.len(), 4);
+        assert_eq!(graph["00"].len(), 2);
+        assert_eq!(graph["01"].len(), 2);
+        assert!(graph["00"].contains(&"01".to_string()));
+        assert!(graph["00"].contains(&"10".to_string()));
+        assert!(graph["01"].contains(&"11".to_string()));
+        assert!(graph["10"].contains(&"11".to_string()));
+    }
+
+    #[test]
+    fn find_n_shortest_paths_returns_two_shortest_routes_in_dim_2() {
+        let graph = build_hypercube(2);
+        let paths = find_n_shortest_paths(&graph, "00", "11", 2);
+
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().all(|p| p.len() == 3));
+        assert!(paths
+            .iter()
+            .any(|p| p == &vec!["00".to_string(), "01".to_string(), "11".to_string()]));
+        assert!(paths
+            .iter()
+            .any(|p| p == &vec!["00".to_string(), "10".to_string(), "11".to_string()]));
+        assert!(paths.iter().all(|p| {
+            let mut unique = p.clone();
+            unique.sort();
+            unique.dedup();
+            unique.len() == p.len()
+        }));
+    }
+
+    #[test]
+    fn find_relay_returns_matching_relay_id_for_sae() {
+        let hypercube = Hypercube {
+            dimension: 2,
+            n: 2,
+            relay: vec![
+                Relay {
+                    id: "00".to_string(),
+                    pqkds: vec!["Alice".to_string()],
+                },
+                Relay {
+                    id: "10".to_string(),
+                    pqkds: vec!["Bob".to_string()],
+                },
+            ],
+            connection: vec![Connection {
+                first: "Alice".to_string(),
+                second: "Bob".to_string(),
+            }],
+        };
+
+        assert_eq!(hypercube.find_relay("Alice"), Some("00"));
+        assert_eq!(hypercube.find_relay("Unknown"), None);
+    }
+}

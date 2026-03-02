@@ -162,3 +162,103 @@ impl AppStateEtsi {
         Ok(Keys { keys: return_keys })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{AppStateEtsi, Client, KeyReceived};
+    use crate::config::Hypercube;
+    use crate::etsi_server::{server::KeyId, KeyIds};
+    use hyper_tls::HttpsConnector;
+    use hyper_util::rt::TokioExecutor;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    fn test_hypercube() -> Arc<Hypercube> {
+        let toml = r#"
+dimension = 2
+n = 2
+
+[[relay]]
+id = "00"
+pqkds = ["Alice"]
+
+[[connection]]
+first = "Alice"
+second = "Bob"
+"#;
+        Arc::new(toml::from_str(toml).expect("valid hypercube"))
+    }
+
+    fn test_client() -> Arc<Client> {
+        let https = HttpsConnector::new();
+        let client: Client =
+            hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
+                .http1_title_case_headers(true)
+                .build(https);
+        Arc::new(client)
+    }
+
+    #[test]
+    fn get_key_returns_only_entries_with_num_equal_two() {
+        let keys = Arc::new(Mutex::new(vec![
+            KeyReceived {
+                num: 2,
+                from: "Relay_00".to_string(),
+                key_id: "k1".to_string(),
+                key: "v1".to_string(),
+            },
+            KeyReceived {
+                num: 1,
+                from: "Relay_00".to_string(),
+                key_id: "k2".to_string(),
+                key: "v2".to_string(),
+            },
+        ]));
+
+        let state = AppStateEtsi {
+            id_relay: "00".to_string(),
+            sae_id: "Alice".to_string(),
+            pqkds: vec![],
+            keys: Arc::clone(&keys),
+            client: test_client(),
+            clients: Arc::new(HashMap::new()),
+            hypercube: test_hypercube(),
+        };
+
+        let key_ids = KeyIds {
+            key_ids: vec![KeyId {
+                key_id: "k1".to_string(),
+            }],
+        };
+
+        let response = state.get_key("Relay_00", &key_ids).expect("get_key ok");
+        assert_eq!(response.keys.len(), 1);
+        assert_eq!(response.keys[0].key_id, "k1");
+        assert_eq!(response.keys[0].key, "v1");
+
+        let store = keys.lock().expect("lock keys");
+        assert_eq!(store.len(), 1);
+        assert_eq!(store[0].key_id, "k2");
+    }
+
+    #[test]
+    fn get_key_returns_empty_when_no_matching_items() {
+        let state = AppStateEtsi {
+            id_relay: "00".to_string(),
+            sae_id: "Alice".to_string(),
+            pqkds: vec![],
+            keys: Arc::new(Mutex::new(Vec::new())),
+            client: test_client(),
+            clients: Arc::new(HashMap::new()),
+            hypercube: test_hypercube(),
+        };
+        let key_ids = KeyIds {
+            key_ids: vec![KeyId {
+                key_id: "unknown".to_string(),
+            }],
+        };
+
+        let response = state.get_key("Relay_00", &key_ids).expect("get_key ok");
+        assert!(response.keys.is_empty());
+    }
+}
