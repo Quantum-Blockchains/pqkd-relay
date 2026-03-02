@@ -29,7 +29,7 @@ pub struct RelayServer {
 }
 
 impl RelayServer {
-    pub async fn build(state: AppStateRelay, config: &Config) -> RelayServer {
+    pub async fn build(state: AppStateRelay, config: &Config) -> Result<RelayServer, std::io::Error> {
         let app = Router::new()
             //.route("/keys", post(request_keys))
             .route("/info_keys", post(info_keys))
@@ -76,11 +76,10 @@ impl RelayServer {
                     ),
             );
 
-        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.port()))
-            .await
-            .unwrap();
+        let listener =
+            tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.port())).await?;
 
-        RelayServer { app, listener }
+        Ok(RelayServer { app, listener })
     }
 
     pub async fn run(self) -> Result<(), std::io::Error> {
@@ -95,7 +94,10 @@ async fn info_keys(
     tracing::info!(
         "Received keys from {} for {}",
         payload.from(),
-        payload.path().last().unwrap()
+        payload
+            .path()
+            .last()
+            .ok_or(StatusCode::BAD_REQUEST)?
     );
     let keys = if let Ok(keys) = get_keys(payload.to(), &state, payload.keys()).await {
         keys
@@ -103,9 +105,12 @@ async fn info_keys(
         return Ok(Response::new(Body::empty()).into_response());
     };
 
-    let pqkd = state.pqkd(|p| p.sae_id() == payload.to()).unwrap();
+    let pqkd = state
+        .pqkd(|p| p.sae_id() == payload.to())
+        .ok_or(StatusCode::BAD_REQUEST)?;
 
-    if payload.path().last().unwrap() == pqkd.sae_id() {
+    let last = payload.path().last().ok_or(StatusCode::BAD_REQUEST)?;
+    if last == pqkd.sae_id() {
         for key in keys {
             tracing::info!(
                 "Save key from {:?} with key_ID: {:?}",
@@ -120,7 +125,7 @@ async fn info_keys(
                     key.key_id,
                     key.key,
                 )
-                .unwrap();
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         }
         Ok(Response::new(Body::empty()).into_response())
     } else {
@@ -138,10 +143,17 @@ async fn send_keys(
     path: &[String],
     keys: Vec<Key>,
 ) -> Result<(), StatusCode> {
-    let position = path.iter().position(|i| i == sae_id).unwrap();
-    let next_pqkd = path.get(position + 1).unwrap();
+    let position = path
+        .iter()
+        .position(|i| i == sae_id)
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let next_pqkd = path
+        .get(position + 1)
+        .ok_or(StatusCode::BAD_REQUEST)?;
 
-    let pqkd = state.pqkd(|p| p.sae_id() == next_pqkd).unwrap();
+    let pqkd = state
+        .pqkd(|p| p.sae_id() == next_pqkd)
+        .ok_or(StatusCode::BAD_REQUEST)?;
 
     if position + 1 == path.len() - 1 {
         for key in keys {
@@ -149,14 +161,16 @@ async fn send_keys(
 
             state
                 .add_key(pqkd.sae_id(), path[0].to_string(), key.key_id, key.key)
-                .unwrap();
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         }
         return Ok(());
     }
 
     tracing::info!("Send keys to next node {}", pqkd.remote_sae_id());
 
-    let client = state.client(pqkd.sae_id()).unwrap();
+    let client = state
+        .client(pqkd.sae_id())
+        .ok_or(StatusCode::BAD_REQUEST)?;
 
     let data = if position == 0 {
         let keys_ids: Vec<String> = keys.iter().map(|k| k.key_id.clone()).collect();
@@ -172,7 +186,12 @@ async fn send_keys(
         )
     } else {
         let number = keys.len();
-        let size = BASE64_STANDARD.decode(keys[0].key.clone()).unwrap().len() * 8;
+        let first_key = keys.first().ok_or(StatusCode::BAD_REQUEST)?;
+        let size = BASE64_STANDARD
+            .decode(first_key.key.clone())
+            .map_err(|_| StatusCode::BAD_REQUEST)?
+            .len()
+            * 8;
 
         let req = hyper::Request::builder()
             .method(hyper::Method::GET)
@@ -184,16 +203,24 @@ async fn send_keys(
                 number
             ))
             .body(Body::empty())
-            .unwrap();
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let res = client.request(req).await.unwrap().into_response();
+        let res = client
+            .request(req)
+            .await
+            .map_err(|_| StatusCode::BAD_GATEWAY)?
+            .into_response();
 
         let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
             .await
-            .unwrap();
+            .map_err(|_| StatusCode::BAD_GATEWAY)?;
 
-        let keys_for_xor: Keys = serde_json::from_slice(&body_bytes[..]).unwrap();
+        let keys_for_xor: Keys =
+            serde_json::from_slice(&body_bytes[..]).map_err(|_| StatusCode::BAD_GATEWAY)?;
         let keys_for_xor = keys_for_xor.keys();
+        if keys_for_xor.len() != keys.len() {
+            return Err(StatusCode::BAD_GATEWAY);
+        }
 
         let mut keys_for_send = Vec::new();
 
@@ -219,10 +246,16 @@ async fn send_keys(
         .method(hyper::Method::POST)
         .uri(format!("{}/info_keys", pqkd.remote_proxy_address()))
         .header("content-type", "application/json")
-        .body(Body::new(serde_json::to_string(&data).unwrap()))
-        .unwrap();
+        .body(Body::new(
+            serde_json::to_string(&data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        ))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let _ = client.request(request).await.unwrap().into_response();
+    let _ = client
+        .request(request)
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?
+        .into_response();
 
     Ok(())
 }
@@ -234,8 +267,12 @@ async fn get_keys(
 ) -> Result<Vec<Key>, StatusCode> {
     let mut keys: Vec<Key> = Vec::new();
 
-    let pqkd = state.pqkd(|p| p.sae_id() == sae_id).unwrap();
-    let client = state.client(sae_id).unwrap();
+    let pqkd = state
+        .pqkd(|p| p.sae_id() == sae_id)
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let client = state
+        .client(sae_id)
+        .ok_or(StatusCode::BAD_REQUEST)?;
 
     for key in payload_keys {
         match (key.key_id(), key.key_id_xor(), key.key()) {
@@ -243,7 +280,7 @@ async fn get_keys(
             (k_id, None, Some(k)) => {
                 keys.push(Key {
                     key_id: String::from(k_id),
-                    key: String::from_utf8(k.clone()).unwrap(),
+                    key: String::from_utf8(k.clone()).map_err(|_| StatusCode::BAD_REQUEST)?,
                 });
             }
             // jesli wysyla pierwszy wezel
@@ -253,19 +290,24 @@ async fn get_keys(
                     .uri(format!(
                         "{}/api/v1/keys/{}/dec_keys?key_ID={}",
                         pqkd.kme_address(),
-                        pqkd.remote_sae_id(),
-                        k_id,
-                    ))
-                    .body(Body::empty())
-                    .unwrap();
+                    pqkd.remote_sae_id(),
+                    k_id,
+                ))
+                .body(Body::empty())
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-                let response = client.request(request).await.unwrap().into_response();
+                let response = client
+                    .request(request)
+                    .await
+                    .map_err(|_| StatusCode::BAD_GATEWAY)?
+                    .into_response();
                 let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
-                    .unwrap();
-                let keys_from_pqkd: Keys = serde_json::from_slice(&body_bytes[..]).unwrap();
+                    .map_err(|_| StatusCode::BAD_GATEWAY)?;
+                let keys_from_pqkd: Keys =
+                    serde_json::from_slice(&body_bytes[..]).map_err(|_| StatusCode::BAD_GATEWAY)?;
                 let keys_from_pqkd = keys_from_pqkd.keys();
-                let key_from_pqkd = keys_from_pqkd.first().unwrap();
+                let key_from_pqkd = keys_from_pqkd.first().ok_or(StatusCode::BAD_GATEWAY)?;
                 keys.push(Key {
                     key: key_from_pqkd.key.to_string(),
                     key_id: key_from_pqkd.key_id.to_string(),
@@ -278,21 +320,27 @@ async fn get_keys(
                     .uri(format!(
                         "{}/api/v1/keys/{}/dec_keys?key_ID={}",
                         pqkd.kme_address(),
-                        pqkd.remote_sae_id(),
-                        k_id_xor,
-                    ))
-                    .body(Body::empty())
-                    .unwrap();
+                    pqkd.remote_sae_id(),
+                    k_id_xor,
+                ))
+                .body(Body::empty())
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-                let response = client.request(request).await.unwrap().into_response();
+                let response = client
+                    .request(request)
+                    .await
+                    .map_err(|_| StatusCode::BAD_GATEWAY)?
+                    .into_response();
                 let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
-                    .unwrap();
-                let keys_from_pqkd: Keys = serde_json::from_slice(&body_bytes[..]).unwrap();
+                    .map_err(|_| StatusCode::BAD_GATEWAY)?;
+                let keys_from_pqkd: Keys =
+                    serde_json::from_slice(&body_bytes[..]).map_err(|_| StatusCode::BAD_GATEWAY)?;
                 let keys_from_pqkd = keys_from_pqkd.keys();
-                let key_from_pqkd = keys_from_pqkd.first().unwrap();
+                let key_from_pqkd = keys_from_pqkd.first().ok_or(StatusCode::BAD_GATEWAY)?;
                 let key_before_xor = util::xor(k.clone(), key_from_pqkd.key.as_bytes().to_vec());
-                let key_to_string = String::from_utf8(key_before_xor).unwrap();
+                let key_to_string =
+                    String::from_utf8(key_before_xor).map_err(|_| StatusCode::BAD_REQUEST)?;
                 let k = Key {
                     key: key_to_string,
                     key_id: String::from(k_id),

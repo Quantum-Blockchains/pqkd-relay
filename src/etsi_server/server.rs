@@ -5,7 +5,7 @@ use crate::util;
 use axum::{
     body::Body,
     extract::{Path, Request, State},
-    http::uri::Uri,
+    http::{header, uri::Uri},
     response::{IntoResponse, Response},
     routing::{get, post},
     Router,
@@ -180,40 +180,37 @@ impl EtsiServer {
     }
 }
 
-async fn status(
-    Path(sae_id): Path<String>,
-    State(state): State<AppStateEtsi>,
-    req: Request,
-) -> Result<Response, StatusCode> {
+async fn status(Path(sae_id): Path<String>, State(state): State<AppStateEtsi>, req: Request) -> Response {
     tracing::info!("Status with {}", sae_id);
-    h(state, req).await.map_err(|e| {
-        tracing::error!("{}", e);
-        e.into()
-    })
+    match h(state, req).await {
+        Ok(res) => res,
+        Err(e) => {
+            tracing::error!("{}", e);
+            error_response(e)
+        }
+    }
 }
 
-async fn enc_keys(
-    Path(sae_id): Path<String>,
-    State(state): State<AppStateEtsi>,
-    req: Request,
-) -> Result<Response, StatusCode> {
+async fn enc_keys(Path(sae_id): Path<String>, State(state): State<AppStateEtsi>, req: Request) -> Response {
     tracing::info!("To: {}", sae_id);
-    _enc_keys(sae_id, state, req).await.map_err(|e| {
-        tracing::error!("Transfer keys failed: {}", e);
-        e.into()
-    })
+    match _enc_keys(sae_id, state, req).await {
+        Ok(res) => res,
+        Err(e) => {
+            tracing::error!("Transfer keys failed: {}", e);
+            error_response(e)
+        }
+    }
 }
 
-async fn dec_keys(
-    Path(sae_id): Path<String>,
-    State(state): State<AppStateEtsi>,
-    req: Request,
-) -> Result<Response, StatusCode> {
+async fn dec_keys(Path(sae_id): Path<String>, State(state): State<AppStateEtsi>, req: Request) -> Response {
     tracing::info!("From: {}", sae_id);
-    _dec_keys(sae_id, state, req).await.map_err(|e| {
-        tracing::error!("{}", e);
-        e.into()
-    })
+    match _dec_keys(sae_id, state, req).await {
+        Ok(res) => res,
+        Err(e) => {
+            tracing::error!("{}", e);
+            error_response(e)
+        }
+    }
 }
 
 async fn _enc_keys(
@@ -227,9 +224,17 @@ async fn _enc_keys(
     if pqkd.remote_sae_id() == sae_id {
         h(state, req).await
     } else {
-        let end = state.hypercube().find_relay(&sae_id).unwrap();
+        let end = state
+            .hypercube()
+            .find_relay(&sae_id)
+            .ok_or(EtsiServerError::PathError)?;
         let hypercube = build_hypercube(state.hypercube().dimension());
-        let paths = find_n_shortest_paths(&hypercube, state.id_relay(), end, state.hypercube().n());
+        let paths = find_n_shortest_paths(
+            &hypercube,
+            state.id_relay(),
+            end,
+            state.hypercube().n(),
+        );
 
         let mut paths_sae_id = Vec::new();
 
@@ -237,24 +242,22 @@ async fn _enc_keys(
             let mut v: Vec<String> = Vec::new();
 
             let mut p = Vec::new();
-            path.iter().for_each(|i| {
-                p.push(
-                    state
-                        .hypercube()
-                        .relay()
-                        .iter()
-                        .find(|r| r.id() == i)
-                        .unwrap()
-                        .pqkds(),
-                );
-            });
+            for i in path.iter() {
+                let relay = state
+                    .hypercube()
+                    .relay()
+                    .iter()
+                    .find(|r| r.id() == i)
+                    .ok_or(EtsiServerError::PathError)?;
+                p.push(relay.pqkds());
+            }
             let c = state.hypercube().connection();
             for i in 0..p.len() - 1 {
                 for sae_id in p[i] {
                     let con = c
                         .iter()
                         .find(|con| con.first() == sae_id || con.second() == sae_id)
-                        .unwrap();
+                        .ok_or(EtsiServerError::PathError)?;
 
                     let s_r = if con.first() == sae_id {
                         con.second()
@@ -271,20 +274,26 @@ async fn _enc_keys(
                     }
                 }
             }
-            if v.last().unwrap() != &sae_id {
+            let last = v.last().ok_or(EtsiServerError::PathError)?;
+            if last != &sae_id {
                 v.push(sae_id.clone());
             }
-            if v.first().unwrap() != state.sae_id() {
+            let first = v.first().ok_or(EtsiServerError::PathError)?;
+            if first != state.sae_id() {
                 v.insert(0, String::from(state.sae_id()));
             }
             paths_sae_id.push(v);
         }
 
-        let p = paths_sae_id
-            .iter()
-            .position(|i| i[1] == pqkd.remote_sae_id())
-            .unwrap();
-        let path = paths_sae_id.swap_remove(p);
+        //let p = paths_sae_id
+        //    .iter()
+        //    .position(|i| i[1] == pqkd.remote_sae_id())
+        //    .unwrap();
+        //    0 -> p
+        if paths_sae_id.is_empty() {
+            return Err(EtsiServerError::PathError);
+        }
+        let path = paths_sae_id.swap_remove(0);
 
         tracing::info!("Main path: {:?}", path);
         tracing::info!("Other path: {:?}", paths_sae_id);
@@ -333,7 +342,9 @@ async fn _enc_keys(
             tokio::task::spawn(async move {
                 tracing::info!("SEND KEY path {:?}", p);
                 let res = send_keys(st, p, ks).await;
-                tx.send(res).await.unwrap();
+                if tx.send(res).await.is_err() {
+                    tracing::error!("Failed to send result from worker");
+                }
             });
         }
         // tokio::task::spawn(async move {
@@ -345,7 +356,9 @@ async fn _enc_keys(
         tokio::task::spawn(async move {
             tracing::info!("SEND KEY path {:?}", path);
             let res = send_keys(st, path, ks).await;
-            tx.send(res).await.unwrap();
+            if tx.send(res).await.is_err() {
+                tracing::error!("Failed to send result from worker");
+            }
         });
 
         //list_handles.push(h);
@@ -406,31 +419,24 @@ async fn _dec_keys(
                 if let Some(param) = req.uri().query() {
                     let query: Result<DecKeysQuery, _> = serde_qs::from_str(param);
                     if query.is_err() {
-                        return Ok(
-                            Response::new(Body::from("{'message': 'No Key IDs'}")).into_response()
-                        );
+                        return Ok(response_json(StatusCode::BAD_REQUEST, "No Key IDs"));
                     }
-                    let keyid = KeyId {
-                        key_id: query.unwrap().key_id,
-                    };
+                    let query = query.map_err(|_| EtsiServerError::GetKeysError)?;
+                    let keyid = KeyId { key_id: query.key_id };
                     KeyIds {
                         key_ids: vec![keyid],
                     }
                 } else {
-                    return Ok(
-                        Response::new(Body::from("{'message': 'No Key IDs'}")).into_response()
-                    );
+                    return Ok(response_json(StatusCode::BAD_REQUEST, "No Key IDs"));
                 }
             }
             Method::POST => {
                 let body = axum::body::to_bytes(req.into_body(), usize::MAX).await?;
                 let keys_ids: Result<KeyIds, _> = serde_json::from_slice(&body[..]);
                 if keys_ids.is_err() {
-                    return Ok(
-                        Response::new(Body::from("{'message': 'No Key IDs'}")).into_response()
-                    );
+                    return Ok(response_json(StatusCode::BAD_REQUEST, "No Key IDs"));
                 }
-                keys_ids.unwrap()
+                keys_ids.map_err(EtsiServerError::from)?
             }
             _ => KeyIds { key_ids: vec![] },
         };
@@ -439,9 +445,10 @@ async fn _dec_keys(
             return Err(EtsiServerError::GetKeysError);
         };
         if !keys.keys.is_empty() {
-            Ok(Response::new(Body::from(serde_json::to_string(&keys).unwrap())).into_response())
+            let body = serde_json::to_string(&keys)?;
+            Ok(Response::new(Body::from(body)).into_response())
         } else {
-            Ok(Response::new(Body::from("{'message': 'No Key IDs'}")).into_response())
+            Ok(response_json(StatusCode::NOT_FOUND, "No Key IDs"))
         }
     }
 }
@@ -470,7 +477,8 @@ async fn send_keys(
     path: Vec<String>,
     keys: Arc<Vec<Key>>,
 ) -> Result<(), EtsiServerError> {
-    let pqkd = if let Some(pq) = state.pqkd(|p| p.sae_id() == path[1]) {
+    let first = path.get(1).ok_or(EtsiServerError::PathError)?;
+    let pqkd = if let Some(pq) = state.pqkd(|p| p.sae_id() == first) {
         pq
     } else {
         state
@@ -511,7 +519,8 @@ async fn send_keys(
         }
     } else {
         let number = keys.len();
-        let size = BASE64_STANDARD.decode(keys[0].key.clone()).unwrap().len() * 8;
+        let first_key = keys.first().ok_or(EtsiServerError::PathError)?;
+        let size = BASE64_STANDARD.decode(first_key.key.clone())?.len() * 8;
         let req = hyper::Request::builder()
             .method(hyper::Method::GET)
             .uri(format!(
@@ -522,12 +531,10 @@ async fn send_keys(
                 number
             ))
             .body(Body::empty())?;
-        let res = state
+        let client = state
             .client_for_sae_id(pqkd.sae_id())
-            .unwrap()
-            .request(req)
-            .await?
-            .into_response();
+            .ok_or(EtsiServerError::UnknownPqkd(pqkd.sae_id().to_string()))?;
+        let res = client.request(req).await?.into_response();
 
         if res.status() != StatusCode::OK {
             return Err(EtsiServerError::PqkdRequestError(res.status()));
@@ -538,6 +545,9 @@ async fn send_keys(
         let keys_for_xor: Keys = serde_json::from_slice(&body_bytes[..])?;
 
         let keys_for_xor = keys_for_xor.keys();
+        if keys_for_xor.len() != keys.len() {
+            return Err(EtsiServerError::SendKeysError);
+        }
 
         let mut keys_for_send = Vec::new();
 
@@ -574,4 +584,31 @@ async fn send_keys(
     }
 
     Ok(())
+}
+
+fn response_json(status: StatusCode, message: &str) -> Response {
+    let body = format!("{{\"error\":\"{}\"}}", message);
+    let mut response = Response::new(Body::from(body));
+    *response.status_mut() = status;
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/json"));
+    response
+}
+
+fn error_response(err: EtsiServerError) -> Response {
+    let status = match err {
+        EtsiServerError::PqkdRequestError(code) => code,
+        EtsiServerError::UnknownPqkd(_) => StatusCode::BAD_REQUEST,
+        EtsiServerError::PathError => StatusCode::BAD_REQUEST,
+        EtsiServerError::SendKeysError => StatusCode::BAD_GATEWAY,
+        EtsiServerError::GetKeysError => StatusCode::BAD_REQUEST,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    let message = if status.is_server_error() {
+        "failed"
+    } else {
+        "invalid_request"
+    };
+    response_json(status, message)
 }
