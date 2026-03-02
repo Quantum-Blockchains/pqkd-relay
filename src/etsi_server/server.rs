@@ -158,7 +158,7 @@ impl EtsiServer {
                     })
                     .on_request(|_request: &Request<_>, _span: &Span| {})
                     .on_response(|_response: &Response, _latency: Duration, _span: &Span| {
-                        _span.record("status_code", &tracing::field::display(_response.status()));
+                        _span.record("status_code", tracing::field::display(_response.status()));
                     })
                     .on_body_chunk(|_chunk: &Bytes, _latency: Duration, _span: &Span| {})
                     .on_eos(
@@ -180,7 +180,11 @@ impl EtsiServer {
     }
 }
 
-async fn status(Path(sae_id): Path<String>, State(state): State<AppStateEtsi>, req: Request) -> Response {
+async fn status(
+    Path(sae_id): Path<String>,
+    State(state): State<AppStateEtsi>,
+    req: Request,
+) -> Response {
     tracing::info!("Status with {}", sae_id);
     match h(state, req).await {
         Ok(res) => res,
@@ -191,7 +195,11 @@ async fn status(Path(sae_id): Path<String>, State(state): State<AppStateEtsi>, r
     }
 }
 
-async fn enc_keys(Path(sae_id): Path<String>, State(state): State<AppStateEtsi>, req: Request) -> Response {
+async fn enc_keys(
+    Path(sae_id): Path<String>,
+    State(state): State<AppStateEtsi>,
+    req: Request,
+) -> Response {
     tracing::info!("To: {}", sae_id);
     match _enc_keys(sae_id, state, req).await {
         Ok(res) => res,
@@ -202,7 +210,11 @@ async fn enc_keys(Path(sae_id): Path<String>, State(state): State<AppStateEtsi>,
     }
 }
 
-async fn dec_keys(Path(sae_id): Path<String>, State(state): State<AppStateEtsi>, req: Request) -> Response {
+async fn dec_keys(
+    Path(sae_id): Path<String>,
+    State(state): State<AppStateEtsi>,
+    req: Request,
+) -> Response {
     tracing::info!("From: {}", sae_id);
     match _dec_keys(sae_id, state, req).await {
         Ok(res) => res,
@@ -229,12 +241,7 @@ async fn _enc_keys(
             .find_relay(&sae_id)
             .ok_or(EtsiServerError::PathError)?;
         let hypercube = build_hypercube(state.hypercube().dimension());
-        let paths = find_n_shortest_paths(
-            &hypercube,
-            state.id_relay(),
-            end,
-            state.hypercube().n(),
-        );
+        let paths = find_n_shortest_paths(&hypercube, state.id_relay(), end, state.hypercube().n());
 
         let mut paths_sae_id = Vec::new();
 
@@ -422,7 +429,9 @@ async fn _dec_keys(
                         return Ok(response_json(StatusCode::BAD_REQUEST, "No Key IDs"));
                     }
                     let query = query.map_err(|_| EtsiServerError::GetKeysError)?;
-                    let keyid = KeyId { key_id: query.key_id };
+                    let keyid = KeyId {
+                        key_id: query.key_id,
+                    };
                     KeyIds {
                         key_ids: vec![keyid],
                     }
@@ -590,9 +599,10 @@ fn response_json(status: StatusCode, message: &str) -> Response {
     let body = format!("{{\"error\":\"{}\"}}", message);
     let mut response = Response::new(Body::from(body));
     *response.status_mut() = status;
-    response
-        .headers_mut()
-        .insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/json"));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("application/json"),
+    );
     response
 }
 
