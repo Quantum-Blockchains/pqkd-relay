@@ -191,11 +191,10 @@ second = "Bob"
 
     fn test_client() -> Arc<Client> {
         let https = HttpsConnector::new();
-        let client: Client = hyper_util::client::legacy::Client::<(), ()>::builder(
-            TokioExecutor::new(),
-        )
-        .http1_title_case_headers(true)
-        .build(https);
+        let client: Client =
+            hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
+                .http1_title_case_headers(true)
+                .build(https);
         Arc::new(client)
     }
 
