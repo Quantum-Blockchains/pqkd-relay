@@ -235,6 +235,23 @@ pub fn build_hypercube(dim: usize) -> HashMap<String, Vec<String>> {
     graph
 }
 
+pub fn build_mesh(relays: &[Relay], connections: &[Connection]) -> HashMap<String, Vec<String>> {
+    let mut graph: HashMap<String, Vec<String>> =
+        relays.iter().map(|r| (r.id().to_string(), vec![])).collect();
+
+    for conn in connections {
+        graph
+            .entry(conn.first().to_string())
+            .or_default()
+            .push(conn.second().to_string());
+        graph
+            .entry(conn.second().to_string())
+            .or_default()
+            .push(conn.first().to_string());
+    }
+    graph
+}
+
 pub fn find_n_shortest_paths(
     graph: &HashMap<String, Vec<String>>,
     start: &str,
@@ -280,8 +297,8 @@ pub fn find_n_shortest_paths(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_hypercube, find_n_shortest_paths, hamming_distance, Connection, Hypercube,
-        MeshTopology, Relay,
+        build_hypercube, build_mesh, find_n_shortest_paths, hamming_distance, Connection,
+        Hypercube, MeshTopology, Relay,
     };
 
     #[test]
@@ -371,5 +388,41 @@ mod tests {
 
         assert_eq!(mesh.find_relay("Alice"), Some("relay-a"));
         assert_eq!(mesh.find_relay("Unknown"), None);
+    }
+
+    #[test]
+    fn build_mesh_triangle_has_correct_neighbors() {
+        let relays = vec![
+            Relay { id: "A".to_string(), pqkds: vec![] },
+            Relay { id: "B".to_string(), pqkds: vec![] },
+            Relay { id: "C".to_string(), pqkds: vec![] },
+        ];
+        let connections = vec![
+            Connection { first: "A".to_string(), second: "B".to_string() },
+            Connection { first: "B".to_string(), second: "C".to_string() },
+            Connection { first: "A".to_string(), second: "C".to_string() },
+        ];
+        let graph = build_mesh(&relays, &connections);
+
+        assert_eq!(graph.len(), 3);
+        assert_eq!(graph["A"].len(), 2);
+        assert!(graph["A"].contains(&"B".to_string()));
+        assert!(graph["A"].contains(&"C".to_string()));
+        assert_eq!(graph["B"].len(), 2);
+        assert_eq!(graph["C"].len(), 2);
+    }
+
+    #[test]
+    fn build_mesh_isolated_relay_has_empty_neighbors() {
+        let relays = vec![
+            Relay { id: "A".to_string(), pqkds: vec![] },
+            Relay { id: "B".to_string(), pqkds: vec![] },
+        ];
+        let connections = vec![];
+        let graph = build_mesh(&relays, &connections);
+
+        assert_eq!(graph.len(), 2);
+        assert!(graph["A"].is_empty());
+        assert!(graph["B"].is_empty());
     }
 }
