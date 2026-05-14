@@ -1,6 +1,6 @@
 use super::error::EtsiServerError;
 use super::state::AppStateEtsi;
-use crate::config::{build_hypercube, find_n_shortest_paths, Pqkd};
+use crate::config::{build_mesh, find_n_shortest_paths, Pqkd};
 use crate::util;
 use axum::{
     body::Body,
@@ -237,11 +237,11 @@ async fn _enc_keys(
         h(state, req).await
     } else {
         let end = state
-            .hypercube()
+            .topology()
             .find_relay(&sae_id)
             .ok_or(EtsiServerError::PathError)?;
-        let hypercube = build_hypercube(state.hypercube().dimension());
-        let paths = find_n_shortest_paths(&hypercube, state.id_relay(), end, state.hypercube().n());
+        let mesh = build_mesh(state.topology().relay(), state.topology().connection());
+        let paths = find_n_shortest_paths(&mesh, state.id_relay(), end, state.topology().n());
 
         let mut paths_sae_id = Vec::new();
 
@@ -251,14 +251,14 @@ async fn _enc_keys(
             let mut p = Vec::new();
             for i in path.iter() {
                 let relay = state
-                    .hypercube()
+                    .topology()
                     .relay()
                     .iter()
                     .find(|r| r.id() == i)
                     .ok_or(EtsiServerError::PathError)?;
                 p.push(relay.pqkds());
             }
-            let c = state.hypercube().connection();
+            let c = state.topology().connection();
             for i in 0..p.len() - 1 {
                 for sae_id in p[i] {
                     let con = c

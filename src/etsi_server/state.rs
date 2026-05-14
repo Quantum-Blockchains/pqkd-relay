@@ -1,4 +1,4 @@
-use crate::config::{Config, Hypercube, Pqkd};
+use crate::config::{Config, MeshTopology, Pqkd};
 use crate::etsi_server::{Key, KeyIds, Keys};
 use axum::body::Body;
 use hyper_tls::HttpsConnector;
@@ -43,7 +43,7 @@ pub struct AppStateEtsi {
     keys: Arc<Mutex<Vec<KeyReceived>>>,
     client: Arc<Client>,
     clients: Arc<HashMap<String, Arc<Client>>>,
-    hypercube: Arc<Hypercube>,
+    topology: Arc<MeshTopology>,
 }
 
 impl AppStateEtsi {
@@ -52,7 +52,7 @@ impl AppStateEtsi {
         config: &Config,
         keys: Arc<Mutex<Vec<KeyReceived>>>,
         clients: Arc<HashMap<String, Arc<Client>>>,
-        hypercube: Arc<Hypercube>,
+        topology: Arc<MeshTopology>,
     ) -> Result<AppStateEtsi, EtsiServerError> {
         let pqkd = config
             .pqkds()
@@ -100,7 +100,7 @@ impl AppStateEtsi {
             keys,
             client: Arc::new(client),
             clients,
-            hypercube,
+            topology,
         })
     }
 
@@ -136,8 +136,8 @@ impl AppStateEtsi {
         self.clients.get(sae_id)
     }
 
-    pub fn hypercube(&self) -> &Arc<Hypercube> {
-        &self.hypercube
+    pub fn topology(&self) -> &Arc<MeshTopology> {
+        &self.topology
     }
 
     pub fn get_key(&self, from: &str, key_ids: &KeyIds) -> Result<Keys, EtsiServerError> {
@@ -166,27 +166,30 @@ impl AppStateEtsi {
 #[cfg(test)]
 mod tests {
     use super::{AppStateEtsi, Client, KeyReceived};
-    use crate::config::Hypercube;
+    use crate::config::MeshTopology;
     use crate::etsi_server::{server::KeyId, KeyIds};
     use hyper_tls::HttpsConnector;
     use hyper_util::rt::TokioExecutor;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
-    fn test_hypercube() -> Arc<Hypercube> {
+    fn test_topology() -> Arc<MeshTopology> {
         let toml = r#"
-dimension = 2
 n = 2
 
 [[relay]]
-id = "00"
+id = "relay-a"
 pqkds = ["Alice"]
 
+[[relay]]
+id = "relay-b"
+pqkds = ["Bob"]
+
 [[connection]]
-first = "Alice"
-second = "Bob"
+first = "relay-a"
+second = "relay-b"
 "#;
-        Arc::new(toml::from_str(toml).expect("valid hypercube"))
+        Arc::new(toml::from_str(toml).expect("valid topology"))
     }
 
     fn test_client() -> Arc<Client> {
@@ -222,7 +225,7 @@ second = "Bob"
             keys: Arc::clone(&keys),
             client: test_client(),
             clients: Arc::new(HashMap::new()),
-            hypercube: test_hypercube(),
+            topology: test_topology(),
         };
 
         let key_ids = KeyIds {
@@ -250,7 +253,7 @@ second = "Bob"
             keys: Arc::new(Mutex::new(Vec::new())),
             client: test_client(),
             clients: Arc::new(HashMap::new()),
-            hypercube: test_hypercube(),
+            topology: test_topology(),
         };
         let key_ids = KeyIds {
             key_ids: vec![KeyId {
