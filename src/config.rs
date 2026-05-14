@@ -154,6 +154,44 @@ impl Hypercube {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MeshTopology {
+    n: usize,
+    relay: Vec<Relay>,
+    connection: Vec<Connection>,
+}
+
+impl MeshTopology {
+    pub fn build(path: PathBuf) -> Result<MeshTopology, Box<dyn error::Error>> {
+        let data = fs::read(path)?;
+        let text = String::from_utf8(data)?;
+        let mesh: MeshTopology = toml::from_str(&text)?;
+        Ok(mesh)
+    }
+
+    pub fn n(&self) -> usize {
+        self.n
+    }
+
+    pub fn relay(&self) -> &Vec<Relay> {
+        &self.relay
+    }
+
+    pub fn connection(&self) -> &Vec<Connection> {
+        &self.connection
+    }
+
+    pub fn find_relay(&self, sae_id: &str) -> Option<&str> {
+        for r in self.relay.iter() {
+            let p = r.pqkds.iter().find(|p| p == &sae_id);
+            if p.is_some() {
+                return Some(r.id());
+            }
+        }
+        None
+    }
+}
+
 #[derive(Eq, PartialEq)]
 pub struct Path {
     cost: usize,
@@ -242,7 +280,8 @@ pub fn find_n_shortest_paths(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_hypercube, find_n_shortest_paths, hamming_distance, Connection, Hypercube, Relay,
+        build_hypercube, find_n_shortest_paths, hamming_distance, Connection, Hypercube,
+        MeshTopology, Relay,
     };
 
     #[test]
@@ -308,5 +347,29 @@ mod tests {
 
         assert_eq!(hypercube.find_relay("Alice"), Some("00"));
         assert_eq!(hypercube.find_relay("Unknown"), None);
+    }
+
+    #[test]
+    fn mesh_find_relay_returns_matching_relay_id_for_sae() {
+        let mesh = MeshTopology {
+            n: 2,
+            relay: vec![
+                Relay {
+                    id: "relay-a".to_string(),
+                    pqkds: vec!["Alice".to_string()],
+                },
+                Relay {
+                    id: "relay-b".to_string(),
+                    pqkds: vec!["Bob".to_string()],
+                },
+            ],
+            connection: vec![Connection {
+                first: "relay-a".to_string(),
+                second: "relay-b".to_string(),
+            }],
+        };
+
+        assert_eq!(mesh.find_relay("Alice"), Some("relay-a"));
+        assert_eq!(mesh.find_relay("Unknown"), None);
     }
 }
