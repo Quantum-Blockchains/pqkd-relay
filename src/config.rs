@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::{error, fs, path::PathBuf};
@@ -252,6 +252,187 @@ pub fn build_mesh(relays: &[Relay], connections: &[Connection]) -> HashMap<Strin
     graph
 }
 
+pub fn find_two_disjoint_paths(
+    graph: &HashMap<String, Vec<String>>,
+    start: &str,
+    end: &str,
+) -> Option<(Vec<String>, Vec<String>)> {
+    let in_of = |v: &str| -> String {
+        if v == start || v == end {
+            v.to_string()
+        } else {
+            format!("{}_in", v)
+        }
+    };
+    let out_of = |v: &str| -> String {
+        if v == start || v == end {
+            v.to_string()
+        } else {
+            format!("{}_out", v)
+        }
+    };
+
+    // Build split directed graph: v → v_in→v_out, edges become out(u)→in(v)
+    let mut split: HashMap<String, Vec<(String, i64)>> = HashMap::new();
+    for v in graph.keys() {
+        split.entry(in_of(v)).or_default();
+        split.entry(out_of(v)).or_default();
+        if v != start && v != end {
+            split
+                .entry(format!("{}_in", v))
+                .or_default()
+                .push((format!("{}_out", v), 0));
+        }
+    }
+    for (u, neighbors) in graph {
+        for v in neighbors {
+            split.entry(out_of(u)).or_default().push((in_of(v), 1));
+        }
+    }
+
+    // Step 1: first Dijkstra
+    let (dist, prev) = dijkstra_w(&split, start);
+    if !dist.contains_key(end) {
+        return None;
+    }
+    let path1_split = reconstruct_prev(&prev, start, end)?;
+
+    // Step 2: Johnson reweighting + reverse P1 edges
+    let mut modified = reweight_w(&split, &dist);
+    for window in path1_split.windows(2) {
+        let (u, v) = (&window[0], &window[1]);
+        if let Some(edges) = modified.get_mut(u) {
+            edges.retain(|(n, _)| n != v);
+        }
+        modified.entry(v.clone()).or_default().push((u.clone(), 0));
+    }
+
+    // Step 3: second Dijkstra on modified graph
+    let (_, prev2) = dijkstra_w(&modified, start);
+    let path2_split = reconstruct_prev(&prev2, start, end)?;
+
+    // Step 4: merge edges from P1+P2, cancel opposing pairs
+    let mut edge_bag: HashMap<(String, String), i32> = HashMap::new();
+    for w in path1_split.windows(2) {
+        *edge_bag.entry((w[0].clone(), w[1].clone())).or_default() += 1;
+    }
+    for w in path2_split.windows(2) {
+        *edge_bag.entry((w[0].clone(), w[1].clone())).or_default() += 1;
+    }
+    let pairs: Vec<_> = edge_bag.keys().cloned().collect();
+    for (u, v) in pairs {
+        let rev = (v.clone(), u.clone());
+        if edge_bag.contains_key(&rev) {
+            let fwd = *edge_bag.get(&(u.clone(), v.clone())).unwrap();
+            let bwd = *edge_bag.get(&rev).unwrap();
+            let cancel = fwd.min(bwd);
+            *edge_bag.get_mut(&(u.clone(), v.clone())).unwrap() -= cancel;
+            *edge_bag.get_mut(&rev).unwrap() -= cancel;
+        }
+    }
+
+    // Step 5: build adjacency from surviving edges, trace two paths
+    let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+    for ((u, v), count) in &edge_bag {
+        for _ in 0..*count {
+            adj.entry(u.clone()).or_default().push(v.clone());
+        }
+    }
+    let p1_split = trace_path(&mut adj, start, end)?;
+    let p2_split = trace_path(&mut adj, start, end)?;
+
+    // Convert split-graph node names back to original relay IDs
+    let to_orig = |path: Vec<String>| -> Vec<String> {
+        let mut result: Vec<String> = Vec::new();
+        for node in path {
+            let name = node
+                .strip_suffix("_in")
+                .or_else(|| node.strip_suffix("_out"))
+                .map(str::to_string)
+                .unwrap_or(node);
+            if result.last() != Some(&name) {
+                result.push(name);
+            }
+        }
+        result
+    };
+
+    Some((to_orig(p1_split), to_orig(p2_split)))
+}
+
+fn dijkstra_w(
+    graph: &HashMap<String, Vec<(String, i64)>>,
+    start: &str,
+) -> (HashMap<String, i64>, HashMap<String, String>) {
+    let mut dist: HashMap<String, i64> = HashMap::new();
+    let mut prev: HashMap<String, String> = HashMap::new();
+    let mut heap: BinaryHeap<Reverse<(i64, String)>> = BinaryHeap::new();
+
+    dist.insert(start.to_string(), 0);
+    heap.push(Reverse((0, start.to_string())));
+
+    while let Some(Reverse((cost, u))) = heap.pop() {
+        if cost > *dist.get(&u).unwrap_or(&i64::MAX) {
+            continue;
+        }
+        for (v, w) in graph.get(&u).into_iter().flatten() {
+            let nc = cost + w;
+            if nc < *dist.get(v).unwrap_or(&i64::MAX) {
+                dist.insert(v.clone(), nc);
+                prev.insert(v.clone(), u.clone());
+                heap.push(Reverse((nc, v.clone())));
+            }
+        }
+    }
+    (dist, prev)
+}
+
+fn reconstruct_prev(prev: &HashMap<String, String>, start: &str, end: &str) -> Option<Vec<String>> {
+    let mut path = vec![end.to_string()];
+    let mut cur = end.to_string();
+    while cur != start {
+        let p = prev.get(&cur)?.clone();
+        path.push(p.clone());
+        cur = p;
+    }
+    path.reverse();
+    Some(path)
+}
+
+fn reweight_w(
+    graph: &HashMap<String, Vec<(String, i64)>>,
+    dist: &HashMap<String, i64>,
+) -> HashMap<String, Vec<(String, i64)>> {
+    graph
+        .iter()
+        .map(|(u, neighbors)| {
+            let new_neighbors = match dist.get(u) {
+                None => vec![],
+                Some(&du) => neighbors
+                    .iter()
+                    .filter_map(|(v, w)| dist.get(v).map(|&dv| (v.clone(), w + du - dv)))
+                    .collect(),
+            };
+            (u.clone(), new_neighbors)
+        })
+        .collect()
+}
+
+fn trace_path(adj: &mut HashMap<String, Vec<String>>, start: &str, end: &str) -> Option<Vec<String>> {
+    let mut path = vec![start.to_string()];
+    let mut cur = start.to_string();
+    while cur != end {
+        let neighbors = adj.get_mut(&cur)?;
+        if neighbors.is_empty() {
+            return None;
+        }
+        let next = neighbors.remove(0);
+        path.push(next.clone());
+        cur = next;
+    }
+    Some(path)
+}
+
 pub fn find_n_shortest_paths(
     graph: &HashMap<String, Vec<String>>,
     start: &str,
@@ -297,9 +478,19 @@ pub fn find_n_shortest_paths(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_hypercube, build_mesh, find_n_shortest_paths, hamming_distance, Connection,
-        Hypercube, MeshTopology, Relay,
+        build_hypercube, build_mesh, find_n_shortest_paths, find_two_disjoint_paths,
+        hamming_distance, Connection, Hypercube, MeshTopology, Relay,
     };
+    use std::collections::{HashMap, HashSet};
+
+    fn mesh_from_edges(edges: &[(&str, &str)]) -> HashMap<String, Vec<String>> {
+        let mut g: HashMap<String, Vec<String>> = HashMap::new();
+        for (u, v) in edges {
+            g.entry(u.to_string()).or_default().push(v.to_string());
+            g.entry(v.to_string()).or_default().push(u.to_string());
+        }
+        g
+    }
 
     #[test]
     fn hamming_distance_counts_different_bits() {
@@ -388,6 +579,33 @@ mod tests {
 
         assert_eq!(mesh.find_relay("Alice"), Some("relay-a"));
         assert_eq!(mesh.find_relay("Unknown"), None);
+    }
+
+    #[test]
+    fn suurballe_square_finds_two_disjoint_paths() {
+        let g = mesh_from_edges(&[("A", "B"), ("B", "D"), ("A", "C"), ("C", "D")]);
+        let (p1, p2) = find_two_disjoint_paths(&g, "A", "D").unwrap();
+
+        let mid1: HashSet<_> = p1[1..p1.len() - 1].iter().collect();
+        let mid2: HashSet<_> = p2[1..p2.len() - 1].iter().collect();
+        assert!(mid1.is_disjoint(&mid2));
+        assert_eq!(p1.first().unwrap(), "A");
+        assert_eq!(p1.last().unwrap(), "D");
+        assert_eq!(p2.first().unwrap(), "A");
+        assert_eq!(p2.last().unwrap(), "D");
+    }
+
+    #[test]
+    fn suurballe_no_path_returns_none() {
+        let g = mesh_from_edges(&[("A", "B"), ("C", "D")]);
+        assert!(find_two_disjoint_paths(&g, "A", "D").is_none());
+    }
+
+    #[test]
+    fn suurballe_linear_chain_returns_none() {
+        // A-B-C has only one path, no vertex-disjoint pair
+        let g = mesh_from_edges(&[("A", "B"), ("B", "C")]);
+        assert!(find_two_disjoint_paths(&g, "A", "C").is_none());
     }
 
     #[test]
