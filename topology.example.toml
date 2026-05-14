@@ -1,0 +1,25 @@
+n = 2
+
+[[relay]]
+id    = "relay-warsaw"
+pqkds = ["alice-sae", "bob-sae"]
+
+[[relay]]
+id    = "relay-berlin"
+pqkds = ["charlie-sae"]
+
+[[relay]]
+id    = "relay-paris"
+pqkds = ["dave-sae"]
+
+[[connection]]
+first  = "relay-warsaw"
+second = "relay-berlin"
+
+[[connection]]
+first  = "relay-warsaw"
+second = "relay-paris"
+
+[[connection]]
+first  = "relay-berlin"
+second = "relay-paris"

@@ -548,8 +548,8 @@ mod tests {
                 },
             ],
             connection: vec![Connection {
-                first: "Alice".to_string(),
-                second: "Bob".to_string(),
+                first: "00".to_string(),
+                second: "10".to_string(),
             }],
         };
 
