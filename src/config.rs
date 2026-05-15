@@ -192,6 +192,25 @@ impl MeshTopology {
     }
 }
 
+#[derive(Debug)]
+pub enum MeshValidationError {
+    DeadEnd(String),
+    TooManyConnections(String),
+    ArticulationPoint(String),
+}
+
+impl std::fmt::Display for MeshValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MeshValidationError::DeadEnd(n) => write!(f, "node '{}' has fewer than 2 connections", n),
+            MeshValidationError::TooManyConnections(n) => write!(f, "node '{}' has more than 5 connections", n),
+            MeshValidationError::ArticulationPoint(n) => write!(f, "node '{}' is an articulation point", n),
+        }
+    }
+}
+
+impl std::error::Error for MeshValidationError {}
+
 #[derive(Eq, PartialEq)]
 pub struct Path {
     cost: usize,
@@ -250,6 +269,81 @@ pub fn build_mesh(relays: &[Relay], connections: &[Connection]) -> HashMap<Strin
             .push(conn.first().to_string());
     }
     graph
+}
+
+pub fn validate_mesh(graph: &HashMap<String, Vec<String>>) -> Result<(), MeshValidationError> {
+    for (node, neighbors) in graph {
+        if neighbors.len() < 2 {
+            return Err(MeshValidationError::DeadEnd(node.clone()));
+        }
+        if neighbors.len() > 5 {
+            return Err(MeshValidationError::TooManyConnections(node.clone()));
+        }
+    }
+    if let Some(ap) = find_articulation_point(graph) {
+        return Err(MeshValidationError::ArticulationPoint(ap));
+    }
+    Ok(())
+}
+
+fn find_articulation_point(graph: &HashMap<String, Vec<String>>) -> Option<String> {
+    let nodes: Vec<String> = graph.keys().cloned().collect();
+    let n = nodes.len();
+    if n == 0 {
+        return None;
+    }
+    let node_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, s)| (s.as_str(), i)).collect();
+
+    let mut disc = vec![usize::MAX; n];
+    let mut low = vec![usize::MAX; n];
+    let mut visited = vec![false; n];
+    let mut is_ap = vec![false; n];
+    let mut timer = 0usize;
+
+    tarjan_ap(0, usize::MAX, &nodes, &node_idx, graph, &mut disc, &mut low, &mut visited, &mut is_ap, &mut timer);
+
+    is_ap.iter().enumerate().find(|(_, &ap)| ap).map(|(i, _)| nodes[i].clone())
+}
+
+fn tarjan_ap(
+    u: usize,
+    parent: usize,
+    nodes: &[String],
+    node_idx: &HashMap<&str, usize>,
+    graph: &HashMap<String, Vec<String>>,
+    disc: &mut Vec<usize>,
+    low: &mut Vec<usize>,
+    visited: &mut Vec<bool>,
+    is_ap: &mut Vec<bool>,
+    timer: &mut usize,
+) {
+    visited[u] = true;
+    disc[u] = *timer;
+    low[u] = *timer;
+    *timer += 1;
+
+    let mut children = 0usize;
+    let neighbors: Vec<usize> = graph[&nodes[u]]
+        .iter()
+        .filter_map(|v| node_idx.get(v.as_str()).copied())
+        .collect();
+
+    for v in neighbors {
+        if !visited[v] {
+            children += 1;
+            tarjan_ap(v, u, nodes, node_idx, graph, disc, low, visited, is_ap, timer);
+            low[u] = low[u].min(low[v]);
+            if parent == usize::MAX && children > 1 {
+                is_ap[u] = true;
+            }
+            if parent != usize::MAX && low[v] >= disc[u] {
+                is_ap[u] = true;
+            }
+        } else if v != parent {
+            low[u] = low[u].min(disc[v]);
+        }
+    }
 }
 
 pub fn find_two_disjoint_paths(
@@ -479,7 +573,7 @@ pub fn find_n_shortest_paths(
 mod tests {
     use super::{
         build_hypercube, build_mesh, find_n_shortest_paths, find_two_disjoint_paths,
-        hamming_distance, Connection, Hypercube, MeshTopology, Relay,
+        hamming_distance, validate_mesh, Connection, Hypercube, MeshTopology, Relay,
     };
     use std::collections::{HashMap, HashSet};
 
@@ -579,6 +673,31 @@ mod tests {
 
         assert_eq!(mesh.find_relay("Alice"), Some("relay-a"));
         assert_eq!(mesh.find_relay("Unknown"), None);
+    }
+
+    #[test]
+    fn triangle_passes_validation() {
+        let g = mesh_from_edges(&[("A", "B"), ("B", "C"), ("A", "C")]);
+        assert!(validate_mesh(&g).is_ok());
+    }
+
+    #[test]
+    fn chain_a_b_c_is_invalid() {
+        let g = mesh_from_edges(&[("A", "B"), ("B", "C")]);
+        assert!(validate_mesh(&g).is_err());
+    }
+
+    #[test]
+    fn single_node_with_no_neighbors_is_invalid() {
+        let mut g = HashMap::new();
+        g.insert("A".to_string(), vec![]);
+        assert!(validate_mesh(&g).is_err());
+    }
+
+    #[test]
+    fn square_with_diagonal_passes_validation() {
+        let g = mesh_from_edges(&[("A", "B"), ("B", "C"), ("C", "D"), ("D", "A"), ("A", "C")]);
+        assert!(validate_mesh(&g).is_ok());
     }
 
     #[test]
