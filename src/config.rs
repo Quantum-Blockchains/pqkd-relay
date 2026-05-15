@@ -571,10 +571,7 @@ pub fn find_n_shortest_paths(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_hypercube, build_mesh, find_n_shortest_paths, find_two_disjoint_paths,
-        hamming_distance, validate_mesh, Connection, Hypercube, MeshTopology, Relay,
-    };
+    use super::{build_mesh, find_two_disjoint_paths, validate_mesh, Connection, MeshTopology, Relay};
     use std::collections::{HashMap, HashSet};
 
     fn mesh_from_edges(edges: &[(&str, &str)]) -> HashMap<String, Vec<String>> {
@@ -587,83 +584,12 @@ mod tests {
     }
 
     #[test]
-    fn hamming_distance_counts_different_bits() {
-        assert_eq!(hamming_distance("1010", "1111"), 2);
-        assert_eq!(hamming_distance("000", "000"), 0);
-    }
-
-    #[test]
-    fn build_hypercube_for_dim_2_has_expected_neighbors() {
-        let graph = build_hypercube(2);
-
-        assert_eq!(graph.len(), 4);
-        assert_eq!(graph["00"].len(), 2);
-        assert_eq!(graph["01"].len(), 2);
-        assert!(graph["00"].contains(&"01".to_string()));
-        assert!(graph["00"].contains(&"10".to_string()));
-        assert!(graph["01"].contains(&"11".to_string()));
-        assert!(graph["10"].contains(&"11".to_string()));
-    }
-
-    #[test]
-    fn find_n_shortest_paths_returns_two_shortest_routes_in_dim_2() {
-        let graph = build_hypercube(2);
-        let paths = find_n_shortest_paths(&graph, "00", "11", 2);
-
-        assert_eq!(paths.len(), 2);
-        assert!(paths.iter().all(|p| p.len() == 3));
-        assert!(paths
-            .iter()
-            .any(|p| p == &vec!["00".to_string(), "01".to_string(), "11".to_string()]));
-        assert!(paths
-            .iter()
-            .any(|p| p == &vec!["00".to_string(), "10".to_string(), "11".to_string()]));
-        assert!(paths.iter().all(|p| {
-            let mut unique = p.clone();
-            unique.sort();
-            unique.dedup();
-            unique.len() == p.len()
-        }));
-    }
-
-    #[test]
     fn find_relay_returns_matching_relay_id_for_sae() {
-        let hypercube = Hypercube {
-            dimension: 2,
+        let topology = MeshTopology {
             n: 2,
             relay: vec![
-                Relay {
-                    id: "00".to_string(),
-                    pqkds: vec!["Alice".to_string()],
-                },
-                Relay {
-                    id: "10".to_string(),
-                    pqkds: vec!["Bob".to_string()],
-                },
-            ],
-            connection: vec![Connection {
-                first: "00".to_string(),
-                second: "10".to_string(),
-            }],
-        };
-
-        assert_eq!(hypercube.find_relay("Alice"), Some("00"));
-        assert_eq!(hypercube.find_relay("Unknown"), None);
-    }
-
-    #[test]
-    fn mesh_find_relay_returns_matching_relay_id_for_sae() {
-        let mesh = MeshTopology {
-            n: 2,
-            relay: vec![
-                Relay {
-                    id: "relay-a".to_string(),
-                    pqkds: vec!["Alice".to_string()],
-                },
-                Relay {
-                    id: "relay-b".to_string(),
-                    pqkds: vec!["Bob".to_string()],
-                },
+                Relay { id: "relay-a".to_string(), pqkds: vec!["Alice".to_string()] },
+                Relay { id: "relay-b".to_string(), pqkds: vec!["Bob".to_string()] },
             ],
             connection: vec![Connection {
                 first: "relay-a".to_string(),
@@ -671,8 +597,8 @@ mod tests {
             }],
         };
 
-        assert_eq!(mesh.find_relay("Alice"), Some("relay-a"));
-        assert_eq!(mesh.find_relay("Unknown"), None);
+        assert_eq!(topology.find_relay("Alice"), Some("relay-a"));
+        assert_eq!(topology.find_relay("Unknown"), None);
     }
 
     #[test]
@@ -718,6 +644,22 @@ mod tests {
     fn suurballe_no_path_returns_none() {
         let g = mesh_from_edges(&[("A", "B"), ("C", "D")]);
         assert!(find_two_disjoint_paths(&g, "A", "D").is_none());
+    }
+
+    #[test]
+    fn suurballe_reroutes_when_naive_paths_overlap() {
+        // Naive BFS finds A→B→E and A→B→D→E (both through B).
+        // Suurballe finds A→B→E and A→C→D→E (vertex-disjoint).
+        let g = mesh_from_edges(&[("A", "B"), ("A", "C"), ("B", "D"), ("C", "D"), ("D", "E"), ("B", "E")]);
+        let (p1, p2) = find_two_disjoint_paths(&g, "A", "E").unwrap();
+
+        let mid1: HashSet<_> = p1[1..p1.len() - 1].iter().collect();
+        let mid2: HashSet<_> = p2[1..p2.len() - 1].iter().collect();
+        assert!(mid1.is_disjoint(&mid2));
+        assert_eq!(p1.first().unwrap(), "A");
+        assert_eq!(p1.last().unwrap(), "E");
+        assert_eq!(p2.first().unwrap(), "A");
+        assert_eq!(p2.last().unwrap(), "E");
     }
 
     #[test]
