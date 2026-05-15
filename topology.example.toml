@@ -1,5 +1,3 @@
-n = 2
-
 [[relay]]
 id    = "relay-warsaw"
 pqkds = ["alice-sae", "bob-sae"]

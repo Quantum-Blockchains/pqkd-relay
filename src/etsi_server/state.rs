@@ -175,8 +175,6 @@ mod tests {
 
     fn test_topology() -> Arc<MeshTopology> {
         let toml = r#"
-n = 2
-
 [[relay]]
 id = "relay-a"
 pqkds = ["Alice"]
