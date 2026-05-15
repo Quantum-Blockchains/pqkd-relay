@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::{error, fs, path::PathBuf};
 use crate::config::{Relay, Connection};
 
@@ -42,6 +43,7 @@ impl MeshTopology {
 pub enum MeshValidationError {
     DeadEnd(String),
     TooManyConnections(String),
+    Disconnected,
     ArticulationPoint(String),
 }
 
@@ -50,6 +52,7 @@ impl std::fmt::Display for MeshValidationError {
         match self {
             MeshValidationError::DeadEnd(n) => write!(f, "node '{}' has fewer than 2 connections", n),
             MeshValidationError::TooManyConnections(n) => write!(f, "node '{}' has more than 5 connections", n),
+            MeshValidationError::Disconnected => write!(f, "graph is not connected"),
             MeshValidationError::ArticulationPoint(n) => write!(f, "node '{}' is an articulation point", n),
         }
     }
@@ -83,10 +86,32 @@ pub fn validate_mesh(graph: &HashMap<String, Vec<String>>) -> Result<(), MeshVal
             return Err(MeshValidationError::TooManyConnections(node.clone()));
         }
     }
+    if !is_connected(graph) {
+        return Err(MeshValidationError::Disconnected);
+    }
     if let Some(ap) = find_articulation_point(graph) {
         return Err(MeshValidationError::ArticulationPoint(ap));
     }
     Ok(())
+}
+
+fn is_connected(graph: &HashMap<String, Vec<String>>) -> bool {
+    let start = match graph.keys().next() {
+        None => return true,
+        Some(s) => s,
+    };
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut stack = vec![start.as_str()];
+    while let Some(node) = stack.pop() {
+        if visited.insert(node) {
+            for neighbor in &graph[node] {
+                if !visited.contains(neighbor.as_str()) {
+                    stack.push(neighbor.as_str());
+                }
+            }
+        }
+    }
+    visited.len() == graph.len()
 }
 
 fn find_articulation_point(graph: &HashMap<String, Vec<String>>) -> Option<String> {
@@ -332,7 +357,7 @@ fn trace_path(adj: &mut HashMap<String, Vec<String>>, start: &str, end: &str) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{build_mesh, find_two_disjoint_paths, validate_mesh, Connection, MeshTopology, Relay};
+    use super::{build_mesh, find_two_disjoint_paths, validate_mesh, Connection, MeshTopology, MeshValidationError, Relay};
     use std::collections::{HashMap, HashSet};
 
     fn mesh_from_edges(edges: &[(&str, &str)]) -> HashMap<String, Vec<String>> {
@@ -450,6 +475,28 @@ mod tests {
         assert!(graph["A"].contains(&"C".to_string()));
         assert_eq!(graph["B"].len(), 2);
         assert_eq!(graph["C"].len(), 2);
+    }
+
+    #[test]
+    fn disconnected_graph_fails_with_disconnected_error() {
+        // Two separate triangles — every node has degree 2, but graph is split in two components.
+        // DeadEnd check passes; only the new connectivity check catches this.
+        let g = mesh_from_edges(&[
+            ("A", "B"), ("B", "C"), ("A", "C"),
+            ("D", "E"), ("E", "F"), ("D", "F"),
+        ]);
+        assert!(matches!(validate_mesh(&g), Err(MeshValidationError::Disconnected)));
+    }
+
+    #[test]
+    fn barbell_graph_has_articulation_point() {
+        // Two triangles sharing node C — removing C disconnects A-B from D-E.
+        // All nodes have degree ≥ 2 and the graph is connected, so only Tarjan catches this.
+        let g = mesh_from_edges(&[
+            ("A", "B"), ("B", "C"), ("A", "C"),
+            ("C", "D"), ("D", "E"), ("C", "E"),
+        ]);
+        assert!(matches!(validate_mesh(&g), Err(MeshValidationError::ArticulationPoint(_))));
     }
 
     #[test]
