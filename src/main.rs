@@ -6,7 +6,7 @@ mod config;
 mod etsi_server;
 mod relay_server;
 mod util;
-use config::{Config, Hypercube, MeshTopology};
+use config::{build_mesh, validate_mesh, Config, MeshTopology};
 use etsi_server::{AppStateEtsi, EtsiServer};
 use relay_server::{AppStateRelay, RelayServer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -36,8 +36,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = cli::Args::fron_args();
     let config = Config::build(args.config_file)?;
-    let hypercube = Arc::new(Hypercube::build(args.hypercube_file.clone())?);
-    let topology = Arc::new(MeshTopology::build(args.hypercube_file)?);
+    let topology = MeshTopology::build(args.topology_file)?;
+    let graph = build_mesh(topology.relay(), topology.connection());
+    validate_mesh(&graph).map_err(|e| format!("Invalid mesh topology: {e}"))?;
+    let topology = Arc::new(topology);
 
     let mut list_handles = Vec::new();
 
