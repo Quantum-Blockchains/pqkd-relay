@@ -1,4 +1,5 @@
-use crate::config::{Config, MeshTopology, Pqkd};
+use crate::config::{Config, Pqkd};
+use crate::mesh::MeshTopology;
 use crate::etsi_server::{Key, KeyIds, Keys};
 use axum::body::Body;
 use hyper_tls::HttpsConnector;
@@ -166,7 +167,7 @@ impl AppStateEtsi {
 #[cfg(test)]
 mod tests {
     use super::{AppStateEtsi, Client, KeyReceived};
-    use crate::config::MeshTopology;
+    use crate::mesh::MeshTopology;
     use crate::etsi_server::{server::KeyId, KeyIds};
     use hyper_tls::HttpsConnector;
     use hyper_util::rt::TokioExecutor;

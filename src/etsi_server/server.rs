@@ -1,6 +1,7 @@
 use super::error::EtsiServerError;
 use super::state::AppStateEtsi;
-use crate::config::{build_mesh, find_two_disjoint_paths, Pqkd};
+use crate::config::Pqkd;
+use crate::mesh::{build_mesh, find_two_disjoint_paths};
 use crate::util;
 use axum::{
     body::Body,
