@@ -1,0 +1,17 @@
+# relay-c — port 7003 (relay-to-relay), ETSI: 8004 (ca), 8006 (cb)
+id   = "relay-c"
+port = 7003
+
+[[pqkds]]
+port                 = 8004
+sae_id               = "ca"
+remote_sae_id        = "ac"
+remote_proxy_address = "http://localhost:7001"
+kme_address          = "http://localhost:9004"
+
+[[pqkds]]
+port                 = 8006
+sae_id               = "cb"
+remote_sae_id        = "bc"
+remote_proxy_address = "http://localhost:7002"
+kme_address          = "http://localhost:9006"

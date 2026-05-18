@@ -1,0 +1,17 @@
+# relay-a — port 7001 (relay-to-relay), ETSI: 8001 (ab), 8003 (ac)
+id   = "relay-a"
+port = 7001
+
+[[pqkds]]
+port                 = 8001
+sae_id               = "ab"
+remote_sae_id        = "ba"
+remote_proxy_address = "http://localhost:7002"
+kme_address          = "http://localhost:9001"
+
+[[pqkds]]
+port                 = 8003
+sae_id               = "ac"
+remote_sae_id        = "ca"
+remote_proxy_address = "http://localhost:7003"
+kme_address          = "http://localhost:9003"

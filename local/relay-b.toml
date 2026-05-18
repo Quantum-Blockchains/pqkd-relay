@@ -1,0 +1,17 @@
+# relay-b — port 7002 (relay-to-relay), ETSI: 8002 (ba), 8005 (bc)
+id   = "relay-b"
+port = 7002
+
+[[pqkds]]
+port                 = 8002
+sae_id               = "ba"
+remote_sae_id        = "ab"
+remote_proxy_address = "http://localhost:7001"
+kme_address          = "http://localhost:9002"
+
+[[pqkds]]
+port                 = 8005
+sae_id               = "bc"
+remote_sae_id        = "cb"
+remote_proxy_address = "http://localhost:7003"
+kme_address          = "http://localhost:9005"
