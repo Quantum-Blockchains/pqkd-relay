@@ -193,8 +193,10 @@ id = "relay-b"
 pqkds = ["Bob"]
 
 [[connection]]
-first = "relay-a"
-second = "relay-b"
+first      = "relay-a"
+second     = "relay-b"
+first_sae  = "Alice"
+second_sae = "Bob"
 "#;
         let topology: MeshTopology = toml::from_str(toml).expect("valid topology");
         let mesh = Arc::new(build_mesh(topology.relay(), topology.connection()));

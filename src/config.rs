@@ -101,13 +101,14 @@ impl Relay {
 pub struct Connection {
     first: String,
     second: String,
+    first_sae: String,
+    second_sae: String,
 }
 
 impl Connection {
     #[cfg(test)]
-
-    pub fn new(first: String, second: String) -> Self {
-        Connection { first, second }
+    pub fn new(first: String, second: String, first_sae: String, second_sae: String) -> Self {
+        Connection { first, second, first_sae, second_sae }
     }
 
     pub fn first(&self) -> &str {
@@ -116,6 +117,14 @@ impl Connection {
 
     pub fn second(&self) -> &str {
         &self.second
+    }
+
+    pub fn first_sae(&self) -> &str {
+        &self.first_sae
+    }
+
+    pub fn second_sae(&self) -> &str {
+        &self.second_sae
     }
 }
 

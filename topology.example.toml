@@ -1,23 +1,29 @@
 [[relay]]
 id    = "relay-warsaw"
-pqkds = ["alice-sae", "bob-sae"]
+pqkds = ["warsaw-berlin", "warsaw-paris"]
 
 [[relay]]
 id    = "relay-berlin"
-pqkds = ["charlie-sae"]
+pqkds = ["berlin-warsaw", "berlin-paris"]
 
 [[relay]]
 id    = "relay-paris"
-pqkds = ["dave-sae"]
+pqkds = ["paris-warsaw", "paris-berlin"]
 
 [[connection]]
-first  = "relay-warsaw"
-second = "relay-berlin"
+first      = "relay-warsaw"
+second     = "relay-berlin"
+first_sae  = "warsaw-berlin"
+second_sae = "berlin-warsaw"
 
 [[connection]]
-first  = "relay-warsaw"
-second = "relay-paris"
+first      = "relay-warsaw"
+second     = "relay-paris"
+first_sae  = "warsaw-paris"
+second_sae = "paris-warsaw"
 
 [[connection]]
-first  = "relay-berlin"
-second = "relay-paris"
+first      = "relay-berlin"
+second     = "relay-paris"
+first_sae  = "berlin-paris"
+second_sae = "paris-berlin"

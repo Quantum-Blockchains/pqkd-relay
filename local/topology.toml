@@ -1,0 +1,29 @@
+[[relay]]
+id    = "relay-a"
+pqkds = ["ab", "ac"]
+
+[[relay]]
+id    = "relay-b"
+pqkds = ["ba", "bc"]
+
+[[relay]]
+id    = "relay-c"
+pqkds = ["ca", "cb"]
+
+[[connection]]
+first      = "relay-a"
+second     = "relay-b"
+first_sae  = "ab"
+second_sae = "ba"
+
+[[connection]]
+first      = "relay-a"
+second     = "relay-c"
+first_sae  = "ac"
+second_sae = "ca"
+
+[[connection]]
+first      = "relay-b"
+second     = "relay-c"
+first_sae  = "bc"
+second_sae = "cb"

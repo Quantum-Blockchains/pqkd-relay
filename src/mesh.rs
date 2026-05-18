@@ -391,6 +391,8 @@ mod tests {
             connection: vec![Connection::new(
                 "relay-a".to_string(),
                 "relay-b".to_string(),
+                "Alice".to_string(),
+                "Bob".to_string(),
             )],
         };
 
@@ -475,9 +477,9 @@ mod tests {
             Relay::new("C".to_string(), vec![]),
         ];
         let connections = vec![
-            Connection::new("A".to_string(), "B".to_string()),
-            Connection::new("B".to_string(), "C".to_string()),
-            Connection::new("A".to_string(), "C".to_string()),
+            Connection::new("A".to_string(), "B".to_string(), "a-b".to_string(), "b-a".to_string()),
+            Connection::new("B".to_string(), "C".to_string(), "b-c".to_string(), "c-b".to_string()),
+            Connection::new("A".to_string(), "C".to_string(), "a-c".to_string(), "c-a".to_string()),
         ];
         let graph = build_mesh(&relays, &connections);
 

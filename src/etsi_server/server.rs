@@ -250,47 +250,37 @@ async fn _enc_keys(
 
         for path in paths {
             let mut v: Vec<String> = Vec::new();
-
-            let mut p = Vec::new();
-            for i in path.iter() {
-                let relay = state
-                    .topology()
-                    .relay()
-                    .iter()
-                    .find(|r| r.id() == i)
-                    .ok_or(EtsiServerError::PathError)?;
-                p.push(relay.pqkds());
-            }
             let c = state.topology().connection();
-            for i in 0..p.len() - 1 {
-                for sae_id in p[i] {
-                    let con = c
-                        .iter()
-                        .find(|con| con.first() == sae_id || con.second() == sae_id)
-                        .ok_or(EtsiServerError::PathError)?;
 
-                    let s_r = if con.first() == sae_id {
-                        con.second()
-                    } else {
-                        con.first()
-                    };
+            for window in path.windows(2) {
+                let (curr_relay, next_relay) = (&window[0], &window[1]);
+                let con = c
+                    .iter()
+                    .find(|con| {
+                        (con.first() == curr_relay && con.second() == next_relay)
+                            || (con.first() == next_relay && con.second() == curr_relay)
+                    })
+                    .ok_or(EtsiServerError::PathError)?;
 
-                    let sae_id_r = p[i + 1].iter().find(|s| s == &s_r);
+                let (sae_curr, sae_next) = if con.first() == curr_relay {
+                    (con.first_sae(), con.second_sae())
+                } else {
+                    (con.second_sae(), con.first_sae())
+                };
 
-                    if let Some(s) = sae_id_r {
-                        v.push(String::from(sae_id));
-                        v.push(String::from(s));
-                        break;
-                    }
+                if v.last().map(|s: &String| s.as_str()) != Some(sae_curr) {
+                    v.push(sae_curr.to_string());
                 }
+                v.push(sae_next.to_string());
             }
+
             let last = v.last().ok_or(EtsiServerError::PathError)?;
             if last != &sae_id {
                 v.push(sae_id.clone());
             }
             let first = v.first().ok_or(EtsiServerError::PathError)?;
             if first != state.sae_id() {
-                v.insert(0, String::from(state.sae_id()));
+                v.insert(0, state.sae_id().to_string());
             }
             paths_sae_id.push(v);
         }
