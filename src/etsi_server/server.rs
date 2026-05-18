@@ -1,7 +1,7 @@
 use super::error::EtsiServerError;
 use super::state::AppStateEtsi;
 use crate::config::Pqkd;
-use crate::mesh::{build_mesh, find_two_disjoint_paths};
+use crate::mesh::find_two_disjoint_paths;
 use crate::util;
 use axum::{
     body::Body,
@@ -241,8 +241,7 @@ async fn _enc_keys(
             .topology()
             .find_relay(&sae_id)
             .ok_or(EtsiServerError::PathError)?;
-        let mesh = build_mesh(state.topology().relay(), state.topology().connection());
-        let paths = match find_two_disjoint_paths(&mesh, state.id_relay(), end) {
+        let paths = match find_two_disjoint_paths(state.mesh(), state.id_relay(), end) {
             Some((p1, p2)) => vec![p1, p2],
             None => return Err(EtsiServerError::PathError),
         };

@@ -17,6 +17,7 @@ impl MeshTopology {
         let data = fs::read(path)?;
         let text = String::from_utf8(data)?;
         let mesh: MeshTopology = toml::from_str(&text)?;
+        check_relay_ids(&mesh.relay)?;
         Ok(mesh)
     }
 
@@ -45,6 +46,7 @@ pub enum MeshValidationError {
     TooManyConnections(String),
     Disconnected,
     ArticulationPoint(String),
+    InvalidRelayId(String),
 }
 
 impl std::fmt::Display for MeshValidationError {
@@ -54,11 +56,21 @@ impl std::fmt::Display for MeshValidationError {
             MeshValidationError::TooManyConnections(n) => write!(f, "node '{}' has more than 5 connections", n),
             MeshValidationError::Disconnected => write!(f, "graph is not connected"),
             MeshValidationError::ArticulationPoint(n) => write!(f, "node '{}' is an articulation point", n),
+            MeshValidationError::InvalidRelayId(n) => write!(f, "relay id '{}' must not end with '_in' or '_out' (reserved by Suurballe vertex splitting)", n),
         }
     }
 }
 
 impl std::error::Error for MeshValidationError {}
+
+fn check_relay_ids(relays: &[Relay]) -> Result<(), MeshValidationError> {
+    for relay in relays {
+        if relay.id().ends_with("_in") || relay.id().ends_with("_out") {
+            return Err(MeshValidationError::InvalidRelayId(relay.id().to_string()));
+        }
+    }
+    Ok(())
+}
 
 pub fn build_mesh(relays: &[Relay], connections: &[Connection]) -> HashMap<String, Vec<String>> {
     let mut graph: HashMap<String, Vec<String>> =
@@ -357,7 +369,7 @@ fn trace_path(adj: &mut HashMap<String, Vec<String>>, start: &str, end: &str) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{build_mesh, find_two_disjoint_paths, validate_mesh, Connection, MeshTopology, MeshValidationError, Relay};
+    use super::{build_mesh, check_relay_ids, find_two_disjoint_paths, validate_mesh, Connection, MeshTopology, MeshValidationError, Relay};
     use std::collections::{HashMap, HashSet};
 
     fn mesh_from_edges(edges: &[(&str, &str)]) -> HashMap<String, Vec<String>> {
@@ -511,5 +523,33 @@ mod tests {
         assert_eq!(graph.len(), 2);
         assert!(graph["A"].is_empty());
         assert!(graph["B"].is_empty());
+    }
+
+    #[test]
+    fn relay_id_ending_with_in_is_rejected() {
+        let relays = vec![Relay::new("relay_in".to_string(), vec![])];
+        assert!(matches!(
+            check_relay_ids(&relays),
+            Err(MeshValidationError::InvalidRelayId(id)) if id == "relay_in"
+        ));
+    }
+
+    #[test]
+    fn relay_id_ending_with_out_is_rejected() {
+        let relays = vec![Relay::new("node_out".to_string(), vec![])];
+        assert!(matches!(
+            check_relay_ids(&relays),
+            Err(MeshValidationError::InvalidRelayId(id)) if id == "node_out"
+        ));
+    }
+
+    #[test]
+    fn relay_ids_without_reserved_suffix_are_accepted() {
+        let relays = vec![
+            Relay::new("relay-a".to_string(), vec![]),
+            Relay::new("relay_input".to_string(), vec![]),
+            Relay::new("output_node".to_string(), vec![]),
+        ];
+        assert!(check_relay_ids(&relays).is_ok());
     }
 }
