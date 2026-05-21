@@ -83,7 +83,6 @@ pub struct Relay {
 
 impl Relay {
     #[cfg(test)]
-
     pub fn new(id: String, pqkds: Vec<String>) -> Self {
         Relay { id, pqkds }
     }
@@ -108,7 +107,12 @@ pub struct Connection {
 impl Connection {
     #[cfg(test)]
     pub fn new(first: String, second: String, first_sae: String, second_sae: String) -> Self {
-        Connection { first, second, first_sae, second_sae }
+        Connection {
+            first,
+            second,
+            first_sae,
+            second_sae,
+        }
     }
 
     pub fn first(&self) -> &str {
@@ -129,6 +133,4 @@ impl Connection {
 }
 
 #[cfg(test)]
-mod tests {
-    
-}
+mod tests {}
