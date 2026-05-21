@@ -6,7 +6,9 @@ mod config;
 mod etsi_server;
 mod relay_server;
 mod util;
-use config::{Config, Hypercube};
+mod mesh;
+use mesh::{build_mesh, validate_mesh, MeshTopology};
+use config::Config;
 use etsi_server::{AppStateEtsi, EtsiServer};
 use relay_server::{AppStateRelay, RelayServer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -36,7 +38,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = cli::Args::fron_args();
     let config = Config::build(args.config_file)?;
-    let hypercube = Arc::new(Hypercube::build(args.hypercube_file)?);
+    let topology = MeshTopology::build(args.topology_file)?;
+    let graph = build_mesh(topology.relay(), topology.connection());
+    validate_mesh(&graph).map_err(|e| format!("Invalid mesh topology: {e}"))?;
+    let topology = Arc::new(topology);
 
     let mut list_handles = Vec::new();
 
@@ -91,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &config,
             keys,
             Arc::clone(&clients_map),
-            Arc::clone(&hypercube),
+            Arc::clone(&topology),
         )?;
         // clients_map.insert(
         //     pqkd.sae_id().to_string(),
@@ -109,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pqkd.sae_id(),
             pqkd.kme_address(),
             pqkd.port()
-        );
+        ); 
     }
 
     let app_state_relay = AppStateRelay::build(config.pqkds().clone(), clients_map, keys_map);

@@ -1,4 +1,5 @@
-use crate::config::{Config, Hypercube, Pqkd};
+use crate::config::{Config, Pqkd};
+use crate::mesh::{build_mesh, MeshTopology};
 use crate::etsi_server::{Key, KeyIds, Keys};
 use axum::body::Body;
 use hyper_tls::HttpsConnector;
@@ -12,6 +13,7 @@ use super::error::EtsiServerError;
 
 use std::collections::HashMap;
 pub type Client = hyper_util::client::legacy::Client<HttpsConnector<HttpConnector>, Body>;
+pub type MeshGraph = HashMap<String, Vec<String>>;
 
 pub struct KeyReceived {
     pub num: u8,
@@ -43,7 +45,8 @@ pub struct AppStateEtsi {
     keys: Arc<Mutex<Vec<KeyReceived>>>,
     client: Arc<Client>,
     clients: Arc<HashMap<String, Arc<Client>>>,
-    hypercube: Arc<Hypercube>,
+    topology: Arc<MeshTopology>,
+    mesh: Arc<MeshGraph>,
 }
 
 impl AppStateEtsi {
@@ -52,7 +55,7 @@ impl AppStateEtsi {
         config: &Config,
         keys: Arc<Mutex<Vec<KeyReceived>>>,
         clients: Arc<HashMap<String, Arc<Client>>>,
-        hypercube: Arc<Hypercube>,
+        topology: Arc<MeshTopology>,
     ) -> Result<AppStateEtsi, EtsiServerError> {
         let pqkd = config
             .pqkds()
@@ -93,6 +96,7 @@ impl AppStateEtsi {
             client
         };
 
+        let mesh = Arc::new(build_mesh(topology.relay(), topology.connection()));
         Ok(AppStateEtsi {
             id_relay: String::from(config.id()),
             sae_id: String::from(local_sae_id),
@@ -100,7 +104,8 @@ impl AppStateEtsi {
             keys,
             client: Arc::new(client),
             clients,
-            hypercube,
+            topology,
+            mesh,
         })
     }
 
@@ -136,8 +141,12 @@ impl AppStateEtsi {
         self.clients.get(sae_id)
     }
 
-    pub fn hypercube(&self) -> &Arc<Hypercube> {
-        &self.hypercube
+    pub fn topology(&self) -> &Arc<MeshTopology> {
+        &self.topology
+    }
+
+    pub fn mesh(&self) -> &Arc<MeshGraph> {
+        &self.mesh
     }
 
     pub fn get_key(&self, from: &str, key_ids: &KeyIds) -> Result<Keys, EtsiServerError> {
@@ -165,28 +174,33 @@ impl AppStateEtsi {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppStateEtsi, Client, KeyReceived};
-    use crate::config::Hypercube;
+    use super::{AppStateEtsi, Client, KeyReceived, MeshGraph};
+    use crate::mesh::{build_mesh, MeshTopology};
     use crate::etsi_server::{server::KeyId, KeyIds};
     use hyper_tls::HttpsConnector;
     use hyper_util::rt::TokioExecutor;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
-    fn test_hypercube() -> Arc<Hypercube> {
+    fn test_topology() -> (Arc<MeshTopology>, Arc<MeshGraph>) {
         let toml = r#"
-dimension = 2
-n = 2
-
 [[relay]]
-id = "00"
+id = "relay-a"
 pqkds = ["Alice"]
 
+[[relay]]
+id = "relay-b"
+pqkds = ["Bob"]
+
 [[connection]]
-first = "Alice"
-second = "Bob"
+first      = "relay-a"
+second     = "relay-b"
+first_sae  = "Alice"
+second_sae = "Bob"
 "#;
-        Arc::new(toml::from_str(toml).expect("valid hypercube"))
+        let topology: MeshTopology = toml::from_str(toml).expect("valid topology");
+        let mesh = Arc::new(build_mesh(topology.relay(), topology.connection()));
+        (Arc::new(topology), mesh)
     }
 
     fn test_client() -> Arc<Client> {
@@ -215,6 +229,7 @@ second = "Bob"
             },
         ]));
 
+        let (topology, mesh) = test_topology();
         let state = AppStateEtsi {
             id_relay: "00".to_string(),
             sae_id: "Alice".to_string(),
@@ -222,7 +237,8 @@ second = "Bob"
             keys: Arc::clone(&keys),
             client: test_client(),
             clients: Arc::new(HashMap::new()),
-            hypercube: test_hypercube(),
+            topology,
+            mesh,
         };
 
         let key_ids = KeyIds {
@@ -243,6 +259,7 @@ second = "Bob"
 
     #[test]
     fn get_key_returns_empty_when_no_matching_items() {
+        let (topology, mesh) = test_topology();
         let state = AppStateEtsi {
             id_relay: "00".to_string(),
             sae_id: "Alice".to_string(),
@@ -250,7 +267,8 @@ second = "Bob"
             keys: Arc::new(Mutex::new(Vec::new())),
             client: test_client(),
             clients: Arc::new(HashMap::new()),
-            hypercube: test_hypercube(),
+            topology,
+            mesh,
         };
         let key_ids = KeyIds {
             key_ids: vec![KeyId {
