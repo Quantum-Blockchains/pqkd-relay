@@ -8,6 +8,7 @@ use std::{error, fs, path::PathBuf};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MeshTopology {
+    network_id: Option<String>,
     relay: Vec<Relay>,
     connection: Vec<Connection>,
 }
@@ -23,6 +24,10 @@ impl MeshTopology {
 
     pub fn relay(&self) -> &Vec<Relay> {
         &self.relay
+    }
+
+    pub fn network_id(&self) -> Option<&str> {
+        self.network_id.as_deref()
     }
 
     pub fn connection(&self) -> &Vec<Connection> {
@@ -414,6 +419,7 @@ mod tests {
     #[test]
     fn find_relay_returns_matching_relay_id_for_sae() {
         let topology = MeshTopology {
+            network_id: None,
             relay: vec![
                 Relay::new("relay-a".to_string(), vec!["Alice".to_string()]),
                 Relay::new("relay-b".to_string(), vec!["Bob".to_string()]),

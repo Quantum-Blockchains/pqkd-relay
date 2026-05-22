@@ -1,3 +1,5 @@
+network_id = "pqkd-example-network"
+
 [[relay]]
 id    = "relay-warsaw"
 pqkds = ["warsaw-berlin", "warsaw-paris"]
