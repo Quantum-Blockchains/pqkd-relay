@@ -1,10 +1,10 @@
+use crate::config::{Connection, Relay};
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::{error, fs, path::PathBuf};
-use crate::config::{Relay, Connection};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MeshTopology {
@@ -73,8 +73,10 @@ fn check_relay_ids(relays: &[Relay]) -> Result<(), MeshValidationError> {
 }
 
 pub fn build_mesh(relays: &[Relay], connections: &[Connection]) -> HashMap<String, Vec<String>> {
-    let mut graph: HashMap<String, Vec<String>> =
-        relays.iter().map(|r| (r.id().to_string(), vec![])).collect();
+    let mut graph: HashMap<String, Vec<String>> = relays
+        .iter()
+        .map(|r| (r.id().to_string(), vec![]))
+        .collect();
 
     for conn in connections {
         graph
@@ -132,8 +134,11 @@ fn find_articulation_point(graph: &HashMap<String, Vec<String>>) -> Option<Strin
     if n == 0 {
         return None;
     }
-    let node_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, s)| (s.as_str(), i)).collect();
+    let node_idx: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.as_str(), i))
+        .collect();
 
     let mut disc = vec![usize::MAX; n];
     let mut low = vec![usize::MAX; n];
@@ -141,11 +146,27 @@ fn find_articulation_point(graph: &HashMap<String, Vec<String>>) -> Option<Strin
     let mut is_ap = vec![false; n];
     let mut timer = 0usize;
 
-    tarjan_ap(0, usize::MAX, &nodes, &node_idx, graph, &mut disc, &mut low, &mut visited, &mut is_ap, &mut timer);
+    tarjan_ap(
+        0,
+        usize::MAX,
+        &nodes,
+        &node_idx,
+        graph,
+        &mut disc,
+        &mut low,
+        &mut visited,
+        &mut is_ap,
+        &mut timer,
+    );
 
-    is_ap.iter().enumerate().find(|(_, &ap)| ap).map(|(i, _)| nodes[i].clone())
+    is_ap
+        .iter()
+        .enumerate()
+        .find(|(_, &ap)| ap)
+        .map(|(i, _)| nodes[i].clone())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn tarjan_ap(
     u: usize,
     parent: usize,
@@ -172,7 +193,9 @@ fn tarjan_ap(
     for v in neighbors {
         if !visited[v] {
             children += 1;
-            tarjan_ap(v, u, nodes, node_idx, graph, disc, low, visited, is_ap, timer);
+            tarjan_ap(
+                v, u, nodes, node_idx, graph, disc, low, visited, is_ap, timer,
+            );
             low[u] = low[u].min(low[v]);
             if parent == usize::MAX && children > 1 {
                 is_ap[u] = true;
@@ -352,7 +375,11 @@ fn reweight_w(
         .collect()
 }
 
-fn trace_path(adj: &mut HashMap<String, Vec<String>>, start: &str, end: &str) -> Option<Vec<String>> {
+fn trace_path(
+    adj: &mut HashMap<String, Vec<String>>,
+    start: &str,
+    end: &str,
+) -> Option<Vec<String>> {
     let mut path = vec![start.to_string()];
     let mut cur = start.to_string();
     while cur != end {
@@ -369,7 +396,10 @@ fn trace_path(adj: &mut HashMap<String, Vec<String>>, start: &str, end: &str) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{build_mesh, check_relay_ids, find_two_disjoint_paths, validate_mesh, Connection, MeshTopology, MeshValidationError, Relay};
+    use super::{
+        build_mesh, check_relay_ids, find_two_disjoint_paths, validate_mesh, Connection,
+        MeshTopology, MeshValidationError, Relay,
+    };
     use std::collections::{HashMap, HashSet};
 
     fn mesh_from_edges(edges: &[(&str, &str)]) -> HashMap<String, Vec<String>> {
@@ -449,7 +479,14 @@ mod tests {
     fn suurballe_reroutes_when_naive_paths_overlap() {
         // Naive BFS finds A→B→E and A→B→D→E (both through B).
         // Suurballe finds A→B→E and A→C→D→E (vertex-disjoint).
-        let g = mesh_from_edges(&[("A", "B"), ("A", "C"), ("B", "D"), ("C", "D"), ("D", "E"), ("B", "E")]);
+        let g = mesh_from_edges(&[
+            ("A", "B"),
+            ("A", "C"),
+            ("B", "D"),
+            ("C", "D"),
+            ("D", "E"),
+            ("B", "E"),
+        ]);
         let (p1, p2) = find_two_disjoint_paths(&g, "A", "E").unwrap();
 
         let mid1: HashSet<_> = p1[1..p1.len() - 1].iter().collect();
@@ -467,7 +504,6 @@ mod tests {
         let g = mesh_from_edges(&[("A", "B"), ("B", "C")]);
         assert!(find_two_disjoint_paths(&g, "A", "C").is_none());
     }
-    
 
     #[test]
     fn build_mesh_triangle_has_correct_neighbors() {
@@ -477,9 +513,24 @@ mod tests {
             Relay::new("C".to_string(), vec![]),
         ];
         let connections = vec![
-            Connection::new("A".to_string(), "B".to_string(), "a-b".to_string(), "b-a".to_string()),
-            Connection::new("B".to_string(), "C".to_string(), "b-c".to_string(), "c-b".to_string()),
-            Connection::new("A".to_string(), "C".to_string(), "a-c".to_string(), "c-a".to_string()),
+            Connection::new(
+                "A".to_string(),
+                "B".to_string(),
+                "a-b".to_string(),
+                "b-a".to_string(),
+            ),
+            Connection::new(
+                "B".to_string(),
+                "C".to_string(),
+                "b-c".to_string(),
+                "c-b".to_string(),
+            ),
+            Connection::new(
+                "A".to_string(),
+                "C".to_string(),
+                "a-c".to_string(),
+                "c-a".to_string(),
+            ),
         ];
         let graph = build_mesh(&relays, &connections);
 
@@ -496,10 +547,17 @@ mod tests {
         // Two separate triangles — every node has degree 2, but graph is split in two components.
         // DeadEnd check passes; only the new connectivity check catches this.
         let g = mesh_from_edges(&[
-            ("A", "B"), ("B", "C"), ("A", "C"),
-            ("D", "E"), ("E", "F"), ("D", "F"),
+            ("A", "B"),
+            ("B", "C"),
+            ("A", "C"),
+            ("D", "E"),
+            ("E", "F"),
+            ("D", "F"),
         ]);
-        assert!(matches!(validate_mesh(&g), Err(MeshValidationError::Disconnected)));
+        assert!(matches!(
+            validate_mesh(&g),
+            Err(MeshValidationError::Disconnected)
+        ));
     }
 
     #[test]
@@ -507,10 +565,17 @@ mod tests {
         // Two triangles sharing node C — removing C disconnects A-B from D-E.
         // All nodes have degree ≥ 2 and the graph is connected, so only Tarjan catches this.
         let g = mesh_from_edges(&[
-            ("A", "B"), ("B", "C"), ("A", "C"),
-            ("C", "D"), ("D", "E"), ("C", "E"),
+            ("A", "B"),
+            ("B", "C"),
+            ("A", "C"),
+            ("C", "D"),
+            ("D", "E"),
+            ("C", "E"),
         ]);
-        assert!(matches!(validate_mesh(&g), Err(MeshValidationError::ArticulationPoint(_))));
+        assert!(matches!(
+            validate_mesh(&g),
+            Err(MeshValidationError::ArticulationPoint(_))
+        ));
     }
 
     #[test]

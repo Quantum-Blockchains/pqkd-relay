@@ -4,12 +4,12 @@ use std::sync::{Arc, Mutex};
 mod cli;
 mod config;
 mod etsi_server;
+mod mesh;
 mod relay_server;
 mod util;
-mod mesh;
-use mesh::{build_mesh, validate_mesh, MeshTopology};
 use config::Config;
 use etsi_server::{AppStateEtsi, EtsiServer};
+use mesh::{build_mesh, validate_mesh, MeshTopology};
 use relay_server::{AppStateRelay, RelayServer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -114,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pqkd.sae_id(),
             pqkd.kme_address(),
             pqkd.port()
-        ); 
+        );
     }
 
     let app_state_relay = AppStateRelay::build(config.pqkds().clone(), clients_map, keys_map);
