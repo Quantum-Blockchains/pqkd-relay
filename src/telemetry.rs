@@ -22,6 +22,18 @@ impl PqkdTelemetryPair {
     }
 }
 
+#[derive(Serialize, Clone)]
+pub struct TopologyEdge {
+    first: String,
+    second: String,
+}
+
+impl TopologyEdge {
+    pub fn new(first: String, second: String) -> Self {
+        Self { first, second }
+    }
+}
+
 #[derive(Serialize)]
 struct RegisterEvent {
     #[serde(rename = "type")]
@@ -29,6 +41,7 @@ struct RegisterEvent {
     network_id: Option<String>,
     relay_id: String,
     pqkds: Vec<PqkdTelemetryPair>,
+    connections: Vec<TopologyEdge>,
     timestamp_utc: String,
 }
 
@@ -55,6 +68,7 @@ pub fn spawn(
     network_id: Option<String>,
     relay_id: String,
     pqkds: Vec<PqkdTelemetryPair>,
+    connections: Vec<TopologyEdge>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         if !config.enabled() {
@@ -82,6 +96,7 @@ pub fn spawn(
                         network_id: network_id.clone(),
                         relay_id: relay_id.clone(),
                         pqkds: pqkds.clone(),
+                        connections: connections.clone(),
                         timestamp_utc: now_utc(),
                     };
                     match serde_json::to_string(&register) {

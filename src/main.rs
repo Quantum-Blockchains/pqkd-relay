@@ -44,6 +44,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let graph = build_mesh(topology.relay(), topology.connection());
     validate_mesh(&graph).map_err(|e| format!("Invalid mesh topology: {e}"))?;
     let topology = Arc::new(topology);
+    let telemetry_connections: Vec<telemetry::TopologyEdge> = topology
+        .connection()
+        .iter()
+        .map(|c| telemetry::TopologyEdge::new(c.first().to_string(), c.second().to_string()))
+        .collect();
 
     let mut list_handles = Vec::new();
 
@@ -62,6 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     )
                 })
                 .collect(),
+            telemetry_connections,
         );
     }
 

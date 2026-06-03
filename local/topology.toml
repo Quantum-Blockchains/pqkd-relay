@@ -1,3 +1,5 @@
+network_id = "net-local"
+
 [[relay]]
 id    = "relay-a"
 pqkds = ["ab", "ac"]
