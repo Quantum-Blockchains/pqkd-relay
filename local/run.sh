@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Uruchamia lokalne środowisko testowe: 6 mocków PQKD + 3 relay-e.
+# Wymaga działającego serwera telemetrii na ws://127.0.0.1:8080/ingest
+# (pqkd-relay-telemetry: docker compose up).
 # Ctrl+C zatrzymuje wszystko.
 set -euo pipefail
 
@@ -21,30 +23,31 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "=== Startuję mocki PQKD (porty 9001-9006) ==="
-for port in 9001 9002 9003 9004 9005 9006; do
+echo "=== Startuję mocki PQKD (porty 11001-11006) ==="
+for port in 11001 11002 11003 11004 11005 11006; do
   python3 "$LOCAL/mock_pqkd.py" "$port" &
 done
 
 sleep 0.5
 
-echo "=== Startuję relay-a (ETSI: 8001,8003 | relay: 7001) ==="
-RUST_LOG=info "$BINARY" -c "$LOCAL/relay-a.toml" -t "$LOCAL/topology.toml" &
+echo "=== Startuję relay-a (ETSI: 3010,3011 | relay: 4001) ==="
+RUST_LOG=info "$BINARY" -c "$LOCAL/config-a.toml" -t "$LOCAL/topology.toml" &
 
-echo "=== Startuję relay-b (ETSI: 8002,8005 | relay: 7002) ==="
-RUST_LOG=info "$BINARY" -c "$LOCAL/relay-b.toml" -t "$LOCAL/topology.toml" &
+echo "=== Startuję relay-b (ETSI: 3020,3021 | relay: 4002) ==="
+RUST_LOG=info "$BINARY" -c "$LOCAL/config-b.toml" -t "$LOCAL/topology.toml" &
 
-echo "=== Startuję relay-c (ETSI: 8004,8006 | relay: 7003) ==="
-RUST_LOG=info "$BINARY" -c "$LOCAL/relay-c.toml" -t "$LOCAL/topology.toml" &
+echo "=== Startuję relay-c (ETSI: 3030,3031 | relay: 4003) ==="
+RUST_LOG=info "$BINARY" -c "$LOCAL/config-c.toml" -t "$LOCAL/topology.toml" &
 
 echo ""
 echo "Środowisko gotowe. Porty:"
-echo "  relay-a  ETSI: 8001 (ab), 8003 (ac)   relay-to-relay: 7001"
-echo "  relay-b  ETSI: 8002 (ba), 8005 (bc)   relay-to-relay: 7002"
-echo "  relay-c  ETSI: 8004 (ca), 8006 (cb)   relay-to-relay: 7003"
+echo "  relay-a  ETSI: 3010 (ab), 3011 (ac)   relay-to-relay: 4001"
+echo "  relay-b  ETSI: 3020 (ba), 3021 (bc)   relay-to-relay: 4002"
+echo "  relay-c  ETSI: 3030 (ca), 3031 (cb)   relay-to-relay: 4003"
+echo "  PQKD mocki: 11001-11006"
 echo ""
 echo "Przykładowe zapytanie o klucz (ab → cb, przez relay-b lub relay-c):"
-echo "  curl -s http://localhost:8001/api/v1/keys/cb/enc_keys | jq ."
+echo "  curl -s http://localhost:3010/api/v1/keys/cb/enc_keys | jq ."
 echo ""
 echo "Ctrl+C żeby zatrzymać."
 
