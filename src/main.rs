@@ -52,25 +52,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut list_handles = Vec::new();
 
-    if let Some(telemetry_config) = config.telemetry() {
-        let _telemetry_handle = telemetry::spawn(
-            telemetry_config.clone(),
-            network_id.clone(),
-            config.id().to_string(),
-            config
-                .pqkds()
-                .iter()
-                .map(|pqkd| {
-                    telemetry::PqkdTelemetryPair::new(
-                        pqkd.sae_id().to_string(),
-                        pqkd.remote_sae_id().to_string(),
-                    )
-                })
-                .collect(),
-            telemetry_connections,
-        );
-    }
-
     let mut keys_map = HashMap::new();
 
     let mut clients_map = HashMap::new();
@@ -113,6 +94,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let clients_map = Arc::new(clients_map);
+
+    if let Some(telemetry_config) = config.telemetry() {
+        let _telemetry_handle = telemetry::spawn(
+            telemetry_config.clone(),
+            network_id.clone(),
+            config.id().to_string(),
+            config
+                .pqkds()
+                .iter()
+                .map(|pqkd| {
+                    telemetry::PqkdEntry::new(
+                        pqkd.sae_id().to_string(),
+                        pqkd.remote_sae_id().to_string(),
+                        pqkd.kme_address().to_string(),
+                    )
+                })
+                .collect(),
+            telemetry_connections,
+            Arc::clone(&clients_map),
+        );
+    }
 
     for pqkd in config.pqkds() {
         let keys = Arc::new(Mutex::new(Vec::new()));
