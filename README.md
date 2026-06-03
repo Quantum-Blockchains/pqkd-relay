@@ -9,7 +9,7 @@ Contents
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
   - [Relay configuration (`config.toml`)](#relay-configuration-configtoml)
-  - [Mesh topology (`mesh.toml`)](#mesh-topology-meshtoml)
+  - [Mesh topology (`topology.toml`)](#mesh-topology-topologytoml)
 - [Runtime behaviour](#runtime-behaviour)
 - [HTTP interfaces](#http-interfaces)
 - [Observability](#observability)
@@ -32,8 +32,8 @@ Quick start
 3. **Run the binary:**
    ```bash
    cargo run --release -- \
-      --config ./local/relay_1/config_1.toml \
-      --topology ./local/relay_1/mesh.toml
+      -c ./local/config-a.toml \
+      -t ./local/topology.toml
    ```
    The process starts one ETSI façade per PQKD in the configuration and a relay endpoint listening on the relay `port`.
 
@@ -76,7 +76,7 @@ Notes:
 - `remote_proxy_address` must point to the neighbour relay that will accept `/info_keys` POSTs.
 - `telemetry.server_ws_url` must use `ws://` or `wss://`.
 
-### Mesh topology (`mesh.toml`)
+### Mesh topology (`topology.toml`)
 The topology file dictates how relays connect and which SAEs are attached to each relay.
 
 ```toml
@@ -157,27 +157,48 @@ Observability
   - `pqkd-relay.register` once after connect
   - `pqkd-relay.heartbeat` every `interval_sec`
 
-Example telemetry payload:
+Example telemetry payloads:
 
+`pqkd-relay.register` — sent once on connect, includes topology:
+```json
+{
+  "type": "pqkd-relay.register",
+  "network_id": "pqkd-local-network-1",
+  "relay_id": "relay-1",
+  "pqkds": [
+    { "sae_id": "Test_1SAE", "paired_with": "Test_2SAE", "status": "ok" },
+    { "sae_id": "Test_5SAE", "paired_with": "Test_6SAE", "status": "unknown" }
+  ],
+  "connections": [
+    { "first": "relay-1", "second": "relay-2" }
+  ],
+  "timestamp_utc": "2026-05-22T13:20:20.123+00:00"
+}
+```
+
+`pqkd-relay.heartbeat` — sent every `interval_sec`:
 ```json
 {
   "type": "pqkd-relay.heartbeat",
   "network_id": "pqkd-local-network-1",
   "relay_id": "relay-1",
   "pqkds": [
-    { "sae_id": "Test_1SAE", "paired_with": "Test_2SAE" },
-    { "sae_id": "Test_5SAE", "paired_with": "Test_6SAE" }
+    { "sae_id": "Test_1SAE", "paired_with": "Test_2SAE", "status": "ok" },
+    { "sae_id": "Test_5SAE", "paired_with": "Test_6SAE", "status": "error" }
   ],
   "timestamp_utc": "2026-05-22T13:20:20.123+00:00"
 }
 ```
 
+`status` values: `"ok"` (PQKD reachable), `"error"` (unreachable), `"unknown"` (health check not yet run).
+
 Development
 -----------
 - Build: `cargo build`
 - Lint/check: `cargo fmt --check` and `cargo clippy`
-- Run tests (currently none): `cargo test`
-- Example configs: `config.example.toml`, `topology.example.toml`, and `local/relay_*` for multi-relay local setup.
+- Run tests: `cargo test`
+- Example configs: `config.example.toml`, `topology.example.toml`
+- Local 3-relay test setup: `local/config-{a,b,c}.toml`, `local/topology.toml`, `local/run.sh` (requires Python 3 for the mock PQKD)
 
 Known limitations
 -----------------
