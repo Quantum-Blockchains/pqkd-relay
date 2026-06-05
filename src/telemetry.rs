@@ -26,7 +26,11 @@ pub struct PqkdEntry {
 
 impl PqkdEntry {
     pub fn new(sae_id: String, paired_with: String, kme_address: String) -> Self {
-        Self { sae_id, paired_with, kme_address }
+        Self {
+            sae_id,
+            paired_with,
+            kme_address,
+        }
     }
 }
 
@@ -94,7 +98,10 @@ pub fn spawn(
 
         let ws_url = config.server_ws_url().to_string();
         if !validate_ws_url(&ws_url) {
-            tracing::error!("Telemetry ws url must start with ws:// or wss://: {}", ws_url);
+            tracing::error!(
+                "Telemetry ws url must start with ws:// or wss://: {}",
+                ws_url
+            );
             return;
         }
 
@@ -111,7 +118,10 @@ pub fn spawn(
         for (entry, status) in pqkd_entries.iter().zip(statuses.iter()) {
             let status = Arc::clone(status);
             let client = clients.get(&entry.sae_id).cloned();
-            let url = format!("{}/api/v1/keys/{}/status", entry.kme_address, entry.paired_with);
+            let url = format!(
+                "{}/api/v1/keys/{}/status",
+                entry.kme_address, entry.paired_with
+            );
             tokio::spawn(async move {
                 loop {
                     let new_status = match client {
@@ -251,8 +261,14 @@ mod tests {
     #[test]
     fn pqkd_status_serializes_snake_case() {
         assert_eq!(serde_json::to_string(&PqkdStatus::Ok).unwrap(), r#""ok""#);
-        assert_eq!(serde_json::to_string(&PqkdStatus::Error).unwrap(), r#""error""#);
-        assert_eq!(serde_json::to_string(&PqkdStatus::Unknown).unwrap(), r#""unknown""#);
+        assert_eq!(
+            serde_json::to_string(&PqkdStatus::Error).unwrap(),
+            r#""error""#
+        );
+        assert_eq!(
+            serde_json::to_string(&PqkdStatus::Unknown).unwrap(),
+            r#""unknown""#
+        );
     }
 
     #[test]

@@ -57,11 +57,11 @@ pub enum MeshValidationError {
 impl std::fmt::Display for MeshValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MeshValidationError::DeadEnd(n) => write!(f, "node '{}' has fewer than 2 connections", n),
-            MeshValidationError::TooManyConnections(n) => write!(f, "node '{}' has more than 5 connections", n),
+            MeshValidationError::DeadEnd(n) => write!(f, "node '{n}' has fewer than 2 connections"),
+            MeshValidationError::TooManyConnections(n) => write!(f, "node '{n}' has more than 5 connections"),
             MeshValidationError::Disconnected => write!(f, "graph is not connected"),
-            MeshValidationError::ArticulationPoint(n) => write!(f, "node '{}' is an articulation point", n),
-            MeshValidationError::InvalidRelayId(n) => write!(f, "relay id '{}' must not end with '_in' or '_out' (reserved by Suurballe vertex splitting)", n),
+            MeshValidationError::ArticulationPoint(n) => write!(f, "node '{n}' is an articulation point"),
+            MeshValidationError::InvalidRelayId(n) => write!(f, "relay id '{n}' must not end with '_in' or '_out' (reserved by Suurballe vertex splitting)"),
         }
     }
 }
@@ -223,14 +223,14 @@ pub fn find_two_disjoint_paths(
         if v == start || v == end {
             v.to_string()
         } else {
-            format!("{}_in", v)
+            format!("{v}_in")
         }
     };
     let out_of = |v: &str| -> String {
         if v == start || v == end {
             v.to_string()
         } else {
-            format!("{}_out", v)
+            format!("{v}_out")
         }
     };
 
@@ -241,9 +241,9 @@ pub fn find_two_disjoint_paths(
         split.entry(out_of(v)).or_default();
         if v != start && v != end {
             split
-                .entry(format!("{}_in", v))
+                .entry(format!("{v}_in"))
                 .or_default()
-                .push((format!("{}_out", v), 0));
+                .push((format!("{v}_out"), 0));
         }
     }
     for (u, neighbors) in graph {
