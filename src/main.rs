@@ -6,6 +6,7 @@ mod config;
 mod etsi_server;
 mod mesh;
 mod relay_server;
+mod telemetry;
 mod util;
 use config::Config;
 use etsi_server::{AppStateEtsi, EtsiServer};
@@ -39,9 +40,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cli::Args::fron_args();
     let config = Config::build(args.config_file)?;
     let topology = MeshTopology::build(args.topology_file)?;
+    let network_id = topology.network_id().map(str::to_string);
     let graph = build_mesh(topology.relay(), topology.connection());
     validate_mesh(&graph).map_err(|e| format!("Invalid mesh topology: {e}"))?;
     let topology = Arc::new(topology);
+    let telemetry_connections: Vec<telemetry::TopologyEdge> = topology
+        .connection()
+        .iter()
+        .map(|c| telemetry::TopologyEdge::new(c.first().to_string(), c.second().to_string()))
+        .collect();
 
     let mut list_handles = Vec::new();
 
@@ -87,6 +94,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let clients_map = Arc::new(clients_map);
+
+    if let Some(telemetry_config) = config.telemetry() {
+        let _telemetry_handle = telemetry::spawn(
+            telemetry_config.clone(),
+            network_id.clone(),
+            config.id().to_string(),
+            config
+                .pqkds()
+                .iter()
+                .map(|pqkd| {
+                    telemetry::PqkdEntry::new(
+                        pqkd.sae_id().to_string(),
+                        pqkd.remote_sae_id().to_string(),
+                        pqkd.kme_address().to_string(),
+                    )
+                })
+                .collect(),
+            telemetry_connections,
+            Arc::clone(&clients_map),
+        );
+    }
 
     for pqkd in config.pqkds() {
         let keys = Arc::new(Mutex::new(Vec::new()));

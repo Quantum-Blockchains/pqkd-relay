@@ -1,0 +1,28 @@
+id = "relay-example"
+port = 4000
+
+[telemetry]
+enabled = true
+server_ws_url = "ws://127.0.0.1:8080/ingest"
+interval_sec = 10
+
+[[pqkds]]
+port = 3000
+sae_id = "Pqkd_1SAE"
+remote_sae_id = "Pqkd_2SAE"
+remote_proxy_address = "http://127.0.0.1:5000"
+kme_address = "http://127.0.0.1:11082"
+
+[[pqkds]]
+port = 3001
+sae_id = "Pqkd_3SAE"
+remote_sae_id = "Pqkd_4SAE"
+remote_proxy_address = "http://127.0.0.1:6000"
+kme_address = "http://127.0.0.1:14082"
+
+[[pqkds]]
+port = 3002
+sae_id = "Pqkd_5SAE"
+remote_sae_id = "Pqkd_6SAE"
+remote_proxy_address = "http://127.0.0.1:7000"
+kme_address = "http://127.0.0.1:10082"

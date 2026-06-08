@@ -52,6 +52,7 @@ pub struct Config {
     id: String,
     port: u16,
     pqkds: Vec<Pqkd>,
+    telemetry: Option<TelemetryConfig>,
 }
 
 impl Config {
@@ -72,6 +73,31 @@ impl Config {
 
     pub fn pqkds(&self) -> &Vec<Pqkd> {
         &self.pqkds
+    }
+
+    pub fn telemetry(&self) -> Option<&TelemetryConfig> {
+        self.telemetry.as_ref()
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TelemetryConfig {
+    enabled: bool,
+    server_ws_url: String,
+    interval_sec: Option<u64>,
+}
+
+impl TelemetryConfig {
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn server_ws_url(&self) -> &str {
+        &self.server_ws_url
+    }
+
+    pub fn interval_sec(&self) -> u64 {
+        self.interval_sec.unwrap_or(10)
     }
 }
 

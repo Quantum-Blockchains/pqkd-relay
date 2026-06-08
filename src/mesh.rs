@@ -8,6 +8,7 @@ use std::{error, fs, path::PathBuf};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MeshTopology {
+    network_id: Option<String>,
     relay: Vec<Relay>,
     connection: Vec<Connection>,
 }
@@ -23,6 +24,10 @@ impl MeshTopology {
 
     pub fn relay(&self) -> &Vec<Relay> {
         &self.relay
+    }
+
+    pub fn network_id(&self) -> Option<&str> {
+        self.network_id.as_deref()
     }
 
     pub fn connection(&self) -> &Vec<Connection> {
@@ -52,11 +57,11 @@ pub enum MeshValidationError {
 impl std::fmt::Display for MeshValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MeshValidationError::DeadEnd(n) => write!(f, "node '{}' has fewer than 2 connections", n),
-            MeshValidationError::TooManyConnections(n) => write!(f, "node '{}' has more than 5 connections", n),
+            MeshValidationError::DeadEnd(n) => write!(f, "node '{n}' has fewer than 2 connections"),
+            MeshValidationError::TooManyConnections(n) => write!(f, "node '{n}' has more than 5 connections"),
             MeshValidationError::Disconnected => write!(f, "graph is not connected"),
-            MeshValidationError::ArticulationPoint(n) => write!(f, "node '{}' is an articulation point", n),
-            MeshValidationError::InvalidRelayId(n) => write!(f, "relay id '{}' must not end with '_in' or '_out' (reserved by Suurballe vertex splitting)", n),
+            MeshValidationError::ArticulationPoint(n) => write!(f, "node '{n}' is an articulation point"),
+            MeshValidationError::InvalidRelayId(n) => write!(f, "relay id '{n}' must not end with '_in' or '_out' (reserved by Suurballe vertex splitting)"),
         }
     }
 }
@@ -218,14 +223,14 @@ pub fn find_two_disjoint_paths(
         if v == start || v == end {
             v.to_string()
         } else {
-            format!("{}_in", v)
+            format!("{v}_in")
         }
     };
     let out_of = |v: &str| -> String {
         if v == start || v == end {
             v.to_string()
         } else {
-            format!("{}_out", v)
+            format!("{v}_out")
         }
     };
 
@@ -236,9 +241,9 @@ pub fn find_two_disjoint_paths(
         split.entry(out_of(v)).or_default();
         if v != start && v != end {
             split
-                .entry(format!("{}_in", v))
+                .entry(format!("{v}_in"))
                 .or_default()
-                .push((format!("{}_out", v), 0));
+                .push((format!("{v}_out"), 0));
         }
     }
     for (u, neighbors) in graph {
@@ -414,6 +419,7 @@ mod tests {
     #[test]
     fn find_relay_returns_matching_relay_id_for_sae() {
         let topology = MeshTopology {
+            network_id: None,
             relay: vec![
                 Relay::new("relay-a".to_string(), vec!["Alice".to_string()]),
                 Relay::new("relay-b".to_string(), vec!["Bob".to_string()]),

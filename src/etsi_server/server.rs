@@ -589,7 +589,7 @@ async fn send_keys(
 }
 
 fn response_json(status: StatusCode, message: &str) -> Response {
-    let body = format!("{{\"error\":\"{}\"}}", message);
+    let body = format!("{{\"error\":\"{message}\"}}");
     let mut response = Response::new(Body::from(body));
     *response.status_mut() = status;
     response.headers_mut().insert(
